@@ -309,7 +309,6 @@ function resetDropState() {
 function setComposerBusy(isBusy) {
   attachButton.disabled = isBusy;
   sendButton.disabled = isBusy;
-  messageInput.disabled = isBusy;
 }
 
 async function submitComposer() {

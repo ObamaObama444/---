@@ -13,7 +13,9 @@ const MAX_FILE_SIZE = 25 * 1024 * 1024;
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server);
+const io = new Server(server, {
+  transports: ["websocket"],
+});
 
 const dataDir = path.join(__dirname, "data");
 const uploadsDir = path.join(__dirname, "uploads");
