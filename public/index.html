@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Open Room</title>
+    <meta
+      name="description"
+      content="Публичный чат без регистрации с общими сообщениями, фотографиями и файлами."
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="page">
+      <main id="chat-shell" class="chat-shell">
+        <section id="messages" class="messages" aria-live="polite"></section>
+
+        <form id="message-form" class="composer">
+          <input id="file-input" type="file" name="file" multiple hidden />
+
+          <div id="attachment-strip" class="attachment-strip" hidden></div>
+
+          <div class="composer-row">
+            <button
+              id="attach-button"
+              class="icon-button"
+              type="button"
+              aria-label="Прикрепить файл"
+              title="Прикрепить файл"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d="M8.5 12.5 15 6a3.5 3.5 0 1 1 5 5l-9 9a5.5 5.5 0 0 1-7.8-7.8l9.2-9.2"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="1.8"
+                />
+              </svg>
+            </button>
+
+            <label class="message-box">
+              <textarea
+                id="message-input"
+                name="message"
+                maxlength="1500"
+                rows="1"
+                placeholder="Сообщение"
+              ></textarea>
+            </label>
+
+            <button
+              id="send-button"
+              class="icon-button icon-button--send"
+              type="submit"
+              aria-label="Отправить"
+              title="Отправить"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d="M21 3 10 14"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="1.8"
+                />
+                <path
+                  d="m21 3-7 18-4-7-7-4 18-7Z"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="1.8"
+                />
+              </svg>
+            </button>
+          </div>
+        </form>
+
+        <div id="drop-indicator" class="drop-indicator" hidden>Отпусти файлы</div>
+      </main>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>

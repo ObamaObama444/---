@@ -1,0 +1,25 @@
+{
+  "name": "public-file-chat",
+  "version": "1.0.0",
+  "description": "Public realtime chat with file sharing and no registration",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "NODE_ENV=development node server.js",
+    "public": "node scripts/public.js",
+    "reset": "node scripts/reset-storage.js"
+  },
+  "dependencies": {
+    "express": "^5.2.1",
+    "multer": "^2.1.1",
+    "socket.io": "^4.8.3"
+  },
+  "keywords": [
+    "chat",
+    "socket.io",
+    "express",
+    "files"
+  ],
+  "author": "",
+  "license": "MIT"
+}
