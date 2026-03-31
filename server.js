@@ -7,6 +7,8 @@ const path = require("path");
 const { randomUUID } = require("crypto");
 
 const PORT = Number(process.env.PORT) || 8000;
+const HOST = process.env.INSTANCE_HOST || process.env.HOST || "0.0.0.0";
+const SOCKET = process.env.SOCKET;
 const MAX_HISTORY = 250;
 const MAX_MESSAGE_LENGTH = 1500;
 const MAX_FILE_SIZE = 25 * 1024 * 1024;
@@ -266,9 +268,23 @@ io.on("connection", (socket) => {
   });
 });
 
-server.listen(PORT, () => {
-  console.log(`Chat is running on http://localhost:${PORT}`);
-});
+if (SOCKET) {
+  if (fs.existsSync(SOCKET)) {
+    fs.unlinkSync(SOCKET);
+  }
+
+  server.listen(SOCKET, () => {
+    try {
+      fs.chmodSync(SOCKET, 0o660);
+    } catch (_error) {}
+
+    console.log(`Chat is running on socket ${SOCKET}`);
+  });
+} else {
+  server.listen(PORT, HOST, () => {
+    console.log(`Chat is running on http://${HOST}:${PORT}`);
+  });
+}
 
 function loadMessages() {
   try {

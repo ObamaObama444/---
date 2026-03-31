@@ -6,7 +6,6 @@
   "scripts": {
     "start": "node server.js",
     "dev": "NODE_ENV=development node server.js",
-    "public": "node scripts/public.js",
     "reset": "node scripts/reset-storage.js"
   },
   "dependencies": {
@@ -21,5 +20,8 @@
     "files"
   ],
   "author": "",
-  "license": "MIT"
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  }
 }

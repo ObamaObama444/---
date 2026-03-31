@@ -1,5 +1,9 @@
 const PROFILE_STORAGE_KEY = "open-room-profile-v1";
 
+const chatToggle = document.querySelector("#chat-toggle");
+const chatBackdrop = document.querySelector("#chat-backdrop");
+const chatPanel = document.querySelector("#chat-panel");
+const chatClose = document.querySelector("#chat-close");
 const chatShell = document.querySelector("#chat-shell");
 const messagesNode = document.querySelector("#messages");
 const messageForm = document.querySelector("#message-form");
@@ -16,9 +20,12 @@ let pendingFiles = [];
 let dragDepth = 0;
 let isDraggingFiles = false;
 let isSubmitting = false;
+let isChatOpen = false;
+let hasUnread = false;
+let isHydratingHistory = false;
 
 const socket = io({
-  transports: ["websocket", "polling"],
+  transports: ["websocket"],
 });
 
 socket.on("connect", () => {
@@ -34,6 +41,24 @@ socket.on("chat:message", (message) => {
 });
 
 socket.on("chat:system", () => {});
+
+chatToggle.addEventListener("click", () => {
+  setChatOpen(!isChatOpen, { focusComposer: true });
+});
+
+chatClose.addEventListener("click", () => {
+  setChatOpen(false, { restoreToggleFocus: true });
+});
+
+chatBackdrop.addEventListener("click", () => {
+  setChatOpen(false, { restoreToggleFocus: true });
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && isChatOpen) {
+    setChatOpen(false, { restoreToggleFocus: true });
+  }
+});
 
 attachButton.addEventListener("click", () => {
   fileInput.click();
@@ -53,6 +78,10 @@ messageInput.addEventListener("paste", (event) => {
 
   event.preventDefault();
   queueFiles(pastedFiles);
+});
+
+messageInput.addEventListener("input", () => {
+  autoResizeComposer();
 });
 
 messageForm.addEventListener("submit", (event) => {
@@ -144,6 +173,9 @@ window.addEventListener("blur", () => {
   resetDropState();
 });
 
+setChatOpen(false);
+autoResizeComposer();
+
 function joinSession() {
   socket.emit("session:join", profile, (response) => {
     if (!response?.ok) {
@@ -155,12 +187,15 @@ function joinSession() {
     profile.nickname = response.session.nickname;
     saveProfile(profile);
     renderMessages(response.messages || []);
+    clearUnread();
   });
 }
 
 function renderMessages(items) {
+  isHydratingHistory = true;
   messagesNode.textContent = "";
   items.forEach((item) => appendMessage(item));
+  isHydratingHistory = false;
 }
 
 function appendMessage(message) {
@@ -255,6 +290,10 @@ function appendMessage(message) {
 
   messagesNode.append(article);
   messagesNode.scrollTop = messagesNode.scrollHeight;
+
+  if (!isHydratingHistory && message.profileId !== profile.profileId && !isChatOpen) {
+    setUnread(true);
+  }
 }
 
 function queueFiles(fileList) {
@@ -329,6 +368,7 @@ async function submitComposer() {
     if (text) {
       await sendText(text);
       messageInput.value = "";
+      autoResizeComposer();
     }
 
     if (pendingFiles.length > 0) {
@@ -419,6 +459,53 @@ function createProfile() {
     profileId: crypto.randomUUID(),
     nickname: `Гость ${Math.floor(1000 + Math.random() * 9000)}`,
   };
+}
+
+function setChatOpen(nextState, options = {}) {
+  const { focusComposer = false, restoreToggleFocus = false } = options;
+
+  isChatOpen = nextState;
+  chatPanel.classList.toggle("is-open", nextState);
+  chatPanel.setAttribute("aria-hidden", String(!nextState));
+  chatBackdrop.hidden = !nextState;
+  chatToggle.setAttribute("aria-expanded", String(nextState));
+  document.body.classList.toggle("chat-open", nextState);
+
+  if ("inert" in chatPanel) {
+    chatPanel.inert = !nextState;
+  }
+
+  if (!nextState) {
+    resetDropState();
+    if (restoreToggleFocus) {
+      chatToggle.focus({ preventScroll: true });
+    }
+    return;
+  }
+
+  clearUnread();
+  requestAnimationFrame(() => {
+    messagesNode.scrollTop = messagesNode.scrollHeight;
+    autoResizeComposer();
+
+    if (focusComposer) {
+      messageInput.focus();
+    }
+  });
+}
+
+function setUnread(nextState) {
+  hasUnread = nextState;
+  chatToggle.classList.toggle("has-unread", hasUnread);
+}
+
+function clearUnread() {
+  setUnread(false);
+}
+
+function autoResizeComposer() {
+  messageInput.style.height = "auto";
+  messageInput.style.height = `${Math.min(Math.max(messageInput.scrollHeight, 54), 180)}px`;
 }
 
 function formatTime(value) {
