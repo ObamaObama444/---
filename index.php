@@ -48,7 +48,7 @@ $appVersion = (string) @filemtime(__DIR__ . "/assets/app.js");
           </div>
 
           <div class="masthead__stats">
-            <span id="doc-total-count">15 docs</span>
+            <span id="doc-total-count">24 docs</span>
             <span>python / math / algorithms / ml / infra</span>
           </div>
         </div>
@@ -65,7 +65,7 @@ $appVersion = (string) @filemtime(__DIR__ . "/assets/app.js");
           </label>
 
           <div class="toolbar__meta">
-            <span id="visible-doc-count">15 visible</span>
+            <span id="visible-doc-count">24 visible</span>
             <span>openable readable documentation pages</span>
           </div>
         </div>
@@ -75,7 +75,7 @@ $appVersion = (string) @filemtime(__DIR__ . "/assets/app.js");
         <aside class="catalog" aria-label="Каталог документации">
           <div class="catalog__head">
             <p class="eyebrow">Catalog</p>
-            <span id="category-count">05 collections</span>
+            <span id="category-count">06 collections</span>
           </div>
 
           <div id="category-filter" class="category-filter"></div>
