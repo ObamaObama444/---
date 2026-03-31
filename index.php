@@ -15,6 +15,14 @@ $appVersion = (string) @filemtime(__DIR__ . "/assets/app.js");
       name="description"
       content="Минималистичный сборник инженерной документации, учебных конспектов и прикладных справочников."
     />
+    <script>
+      try {
+        const savedTheme = localStorage.getItem("reference-theme-v1");
+        if (savedTheme === "dark") {
+          document.documentElement.dataset.theme = "dark";
+        }
+      } catch (_error) {}
+    </script>
     <link rel="stylesheet" href="/assets/styles.css?v=<?= htmlspecialchars($stylesVersion, ENT_QUOTES, 'UTF-8') ?>" />
   </head>
   <body>
@@ -178,6 +186,22 @@ $appVersion = (string) @filemtime(__DIR__ . "/assets/app.js");
         <div id="drop-indicator" class="drop-indicator" hidden>Отпусти файлы</div>
       </main>
     </aside>
+
+    <button
+      id="theme-toggle"
+      class="theme-toggle"
+      type="button"
+      aria-label="Включить темную тему"
+      title="Темная тема"
+    >
+      <svg class="theme-toggle__sun" viewBox="0 0 24 24" aria-hidden="true">
+        <circle cx="12" cy="12" r="4.2" fill="none" stroke="currentColor" stroke-width="1.8" />
+        <path d="M12 2.5v2.3M12 19.2v2.3M4.8 4.8l1.6 1.6M17.6 17.6l1.6 1.6M2.5 12h2.3M19.2 12h2.3M4.8 19.2l1.6-1.6M17.6 6.4l1.6-1.6" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="1.8" />
+      </svg>
+      <svg class="theme-toggle__moon" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M19 14.6A7.5 7.5 0 0 1 9.4 5a8 8 0 1 0 9.6 9.6Z" fill="none" stroke="currentColor" stroke-linejoin="round" stroke-width="1.8" />
+      </svg>
+    </button>
 
     <script src="/assets/docs.js?v=<?= htmlspecialchars($docsVersion, ENT_QUOTES, 'UTF-8') ?>" defer></script>
     <script src="/assets/app.js?v=<?= htmlspecialchars($appVersion, ENT_QUOTES, 'UTF-8') ?>" defer></script>
