@@ -59,7 +59,7 @@ npm run reset
 ```bash
 find . -mindepth 1 -maxdepth 1 ! -name '.well-known' -exec rm -rf {} +
 git clone https://github.com/ObamaObama444/--- .
-npm ci --omit=dev
+npm install
 ```
 
 После этого в панели:
@@ -79,7 +79,7 @@ npm ci --omit=dev
 
 ```bash
 npm install -g pm2
-npm ci --omit=dev
+npm install
 pm2 start ecosystem.config.js
 pm2 save
 ```
