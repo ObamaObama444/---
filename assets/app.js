@@ -27,9 +27,62 @@ let renderedMessageIds = new Set();
 let lastMessageId = "";
 let pollTimerId = null;
 let isPolling = false;
+let isToggleHovered = false;
+let touchOpenTimerId = null;
+const TOUCH_OPEN_DELAY_MS = 650;
 
-chatToggle.addEventListener("click", () => {
-  setChatOpen(!isChatOpen, { focusComposer: true });
+chatToggle.addEventListener("click", (event) => {
+  event.preventDefault();
+});
+
+chatToggle.addEventListener("pointerenter", () => {
+  isToggleHovered = true;
+
+  if (!isChatOpen) {
+    chatToggle.focus({ preventScroll: true });
+  }
+});
+
+chatToggle.addEventListener("pointerleave", () => {
+  isToggleHovered = false;
+
+  if (!isChatOpen && document.activeElement === chatToggle) {
+    chatToggle.blur();
+  }
+});
+
+chatToggle.addEventListener("keydown", (event) => {
+  if (event.key !== " " && event.key !== "Spacebar") {
+    return;
+  }
+
+  if (!isToggleHovered || isChatOpen) {
+    event.preventDefault();
+    return;
+  }
+
+  event.preventDefault();
+  setChatOpen(true, { focusComposer: true });
+});
+
+chatToggle.addEventListener("pointerdown", (event) => {
+  if (event.pointerType !== "touch") {
+    return;
+  }
+
+  clearTouchOpenTimer();
+  touchOpenTimerId = window.setTimeout(() => {
+    touchOpenTimerId = null;
+    setChatOpen(true, { focusComposer: true });
+  }, TOUCH_OPEN_DELAY_MS);
+});
+
+chatToggle.addEventListener("pointerup", clearTouchOpenTimer);
+chatToggle.addEventListener("pointercancel", clearTouchOpenTimer);
+chatToggle.addEventListener("pointermove", clearTouchOpenTimer);
+chatToggle.addEventListener("blur", () => {
+  isToggleHovered = false;
+  clearTouchOpenTimer();
 });
 
 chatClose.addEventListener("click", () => {
@@ -591,6 +644,15 @@ function setUnread(nextState) {
 
 function clearUnread() {
   setUnread(false);
+}
+
+function clearTouchOpenTimer() {
+  if (!touchOpenTimerId) {
+    return;
+  }
+
+  window.clearTimeout(touchOpenTimerId);
+  touchOpenTimerId = null;
 }
 
 function autoResizeComposer() {
