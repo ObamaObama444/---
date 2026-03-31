@@ -1,7 +1,8 @@
-node_modules
 .DS_Store
 .env
-uploads/*
-!uploads/.gitkeep
-data/*.json
-!data/.gitkeep
+node_modules
+data/
+uploads/
+storage/uploads/*
+!storage/uploads/.gitkeep
+storage/messages.json

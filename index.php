@@ -1,3 +1,4 @@
+<?php declare(strict_types=1); ?>
 <!doctype html>
 <html lang="ru">
   <head>
@@ -8,7 +9,7 @@
       name="description"
       content="Сводный индекс инженерных документаций, математических конспектов, API-заметок и эксплуатационных справочников."
     />
-    <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="/assets/styles.css" />
   </head>
   <body>
     <button
@@ -461,7 +462,6 @@
       </main>
     </aside>
 
-    <script src="/socket.io/socket.io.js"></script>
-    <script src="/app.js" type="module"></script>
+    <script src="/assets/app.js" type="module"></script>
   </body>
 </html>

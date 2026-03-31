@@ -1,4 +1,5 @@
 const PROFILE_STORAGE_KEY = "open-room-profile-v1";
+const POLL_INTERVAL_MS = 2000;
 
 const chatToggle = document.querySelector("#chat-toggle");
 const chatBackdrop = document.querySelector("#chat-backdrop");
@@ -15,7 +16,6 @@ const attachmentStrip = document.querySelector("#attachment-strip");
 const dropIndicator = document.querySelector("#drop-indicator");
 
 let profile = loadProfile();
-let currentSocketId = "";
 let pendingFiles = [];
 let dragDepth = 0;
 let isDraggingFiles = false;
@@ -23,24 +23,10 @@ let isSubmitting = false;
 let isChatOpen = false;
 let hasUnread = false;
 let isHydratingHistory = false;
-
-const socket = io({
-  transports: ["websocket"],
-});
-
-socket.on("connect", () => {
-  joinSession();
-});
-
-socket.on("disconnect", () => {
-  currentSocketId = "";
-});
-
-socket.on("chat:message", (message) => {
-  appendMessage(message);
-});
-
-socket.on("chat:system", () => {});
+let renderedMessageIds = new Set();
+let lastMessageId = "";
+let pollTimerId = null;
+let isPolling = false;
 
 chatToggle.addEventListener("click", () => {
   setChatOpen(!isChatOpen, { focusComposer: true });
@@ -175,33 +161,91 @@ window.addEventListener("blur", () => {
 
 setChatOpen(false);
 autoResizeComposer();
+void bootstrapSession();
 
-function joinSession() {
-  socket.emit("session:join", profile, (response) => {
-    if (!response?.ok) {
-      return;
-    }
+async function bootstrapSession() {
+  try {
+    const payload = await requestJson("/api/session.php", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(profile),
+    });
 
-    currentSocketId = response.session.socketId;
-    profile.profileId = response.session.profileId;
-    profile.nickname = response.session.nickname;
+    profile.profileId = payload.session.profileId;
+    profile.nickname = payload.session.nickname;
     saveProfile(profile);
-    renderMessages(response.messages || []);
+    renderMessages(payload.messages || []);
     clearUnread();
-  });
+    startPolling();
+  } catch (error) {
+    window.alert(error.message || "Не удалось подключиться к чату.");
+  }
+}
+
+function startPolling() {
+  stopPolling();
+  pollTimerId = window.setInterval(() => {
+    void pollMessages();
+  }, POLL_INTERVAL_MS);
+}
+
+function stopPolling() {
+  if (pollTimerId) {
+    window.clearInterval(pollTimerId);
+    pollTimerId = null;
+  }
+}
+
+async function pollMessages() {
+  if (isPolling) {
+    return;
+  }
+
+  isPolling = true;
+
+  try {
+    const suffix = lastMessageId ? `?after=${encodeURIComponent(lastMessageId)}` : "";
+    const payload = await requestJson(`/api/messages.php${suffix}`);
+
+    for (const message of payload.messages || []) {
+      appendMessage(message);
+    }
+  } catch (_error) {
+    // The next poll will retry automatically.
+  } finally {
+    isPolling = false;
+  }
 }
 
 function renderMessages(items) {
   isHydratingHistory = true;
+  renderedMessageIds = new Set();
+  lastMessageId = "";
   messagesNode.textContent = "";
   items.forEach((item) => appendMessage(item));
   isHydratingHistory = false;
 }
 
 function appendMessage(message) {
-  if (message.type === "system") {
+  if (!message?.id) {
     return;
   }
+
+  if (renderedMessageIds.has(message.id)) {
+    lastMessageId = message.id;
+    return;
+  }
+
+  if (message.type === "system") {
+    lastMessageId = message.id;
+    renderedMessageIds.add(message.id);
+    return;
+  }
+
+  renderedMessageIds.add(message.id);
+  lastMessageId = message.id;
 
   const article = document.createElement("article");
   article.className = "message";
@@ -279,7 +323,7 @@ function appendMessage(message) {
 
     const downloadLink = document.createElement("a");
     downloadLink.className = "file-link";
-    downloadLink.href = `/api/files/${message.file.id}`;
+    downloadLink.href = buildDownloadFileUrl(message.file.id);
     downloadLink.textContent = "Скачать";
     downloadLink.setAttribute("download", message.file.originalName);
     actions.append(downloadLink);
@@ -366,7 +410,19 @@ async function submitComposer() {
 
   try {
     if (text) {
-      await sendText(text);
+      const payload = await requestJson("/api/messages.php", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          profileId: profile.profileId,
+          nickname: profile.nickname,
+          text,
+        }),
+      });
+
+      appendMessage(payload.message);
       messageInput.value = "";
       autoResizeComposer();
     }
@@ -378,7 +434,8 @@ async function submitComposer() {
       renderAttachmentStrip();
 
       for (const file of filesToUpload) {
-        await uploadFile(file);
+        const message = await uploadFile(file);
+        appendMessage(message);
       }
     }
 
@@ -391,36 +448,37 @@ async function submitComposer() {
   }
 }
 
-function sendText(text) {
-  return new Promise((resolve, reject) => {
-    socket.emit("chat:send", { text }, (response) => {
-      if (!response?.ok) {
-        reject(new Error(response?.error || "Не удалось отправить сообщение."));
-        return;
-      }
-
-      resolve();
-    });
-  });
-}
-
 async function uploadFile(file) {
   const formData = new FormData();
   formData.append("file", file);
-  formData.append("socketId", currentSocketId);
   formData.append("profileId", profile.profileId);
   formData.append("nickname", profile.nickname);
 
-  const response = await fetch("/api/upload", {
+  const payload = await requestJson("/api/upload.php", {
     method: "POST",
     body: formData,
   });
 
-  const payload = await response.json();
+  return payload.message;
+}
 
-  if (!response.ok || !payload.ok) {
-    throw new Error(payload.error || `Не удалось загрузить ${file.name}.`);
+async function requestJson(url, options = {}) {
+  const response = await fetch(url, options);
+  const raw = await response.text();
+
+  let payload = null;
+
+  try {
+    payload = raw ? JSON.parse(raw) : {};
+  } catch (_error) {
+    payload = {};
   }
+
+  if (!response.ok || !payload?.ok) {
+    throw new Error(payload?.error || "Запрос завершился с ошибкой.");
+  }
+
+  return payload;
 }
 
 function loadProfile() {
@@ -477,13 +535,16 @@ function setChatOpen(nextState, options = {}) {
 
   if (!nextState) {
     resetDropState();
+
     if (restoreToggleFocus) {
       chatToggle.focus({ preventScroll: true });
     }
+
     return;
   }
 
   clearUnread();
+
   requestAnimationFrame(() => {
     messagesNode.scrollTop = messagesNode.scrollHeight;
     autoResizeComposer();
@@ -541,7 +602,11 @@ function isImageFile(file) {
 }
 
 function buildInlineFileUrl(fileId) {
-  return `/api/files/${fileId}/content`;
+  return `/api/file.php?id=${encodeURIComponent(fileId)}&mode=inline`;
+}
+
+function buildDownloadFileUrl(fileId) {
+  return `/api/file.php?id=${encodeURIComponent(fileId)}&mode=download`;
 }
 
 function extractFilesFromClipboard(clipboardData) {
