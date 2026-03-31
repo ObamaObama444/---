@@ -509,14 +509,43 @@ function loadProfile() {
 }
 
 function saveProfile(nextProfile) {
-  localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(nextProfile));
+  try {
+    localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(nextProfile));
+  } catch (_error) {
+    // Ignore storage write failures and continue with the in-memory profile.
+  }
 }
 
 function createProfile() {
   return {
-    profileId: crypto.randomUUID(),
+    profileId: generateProfileId(),
     nickname: `Гость ${Math.floor(1000 + Math.random() * 9000)}`,
   };
+}
+
+function generateProfileId() {
+  if (typeof crypto !== "undefined") {
+    if (typeof crypto.randomUUID === "function") {
+      return crypto.randomUUID();
+    }
+
+    if (typeof crypto.getRandomValues === "function") {
+      const bytes = crypto.getRandomValues(new Uint8Array(16));
+      bytes[6] = (bytes[6] & 0x0f) | 0x40;
+      bytes[8] = (bytes[8] & 0x3f) | 0x80;
+
+      const hex = [...bytes].map((byte) => byte.toString(16).padStart(2, "0"));
+      return [
+        hex.slice(0, 4).join(""),
+        hex.slice(4, 6).join(""),
+        hex.slice(6, 8).join(""),
+        hex.slice(8, 10).join(""),
+        hex.slice(10, 16).join(""),
+      ].join("-");
+    }
+  }
+
+  return `guest-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
 }
 
 function setChatOpen(nextState, options = {}) {
