@@ -1,4 +1,10 @@
-<?php declare(strict_types=1); ?>
+<?php
+declare(strict_types=1);
+
+$stylesVersion = (string) @filemtime(__DIR__ . "/assets/styles.css");
+$docsVersion = (string) @filemtime(__DIR__ . "/assets/docs.js");
+$appVersion = (string) @filemtime(__DIR__ . "/assets/app.js");
+?>
 <!doctype html>
 <html lang="ru">
   <head>
@@ -9,7 +15,7 @@
       name="description"
       content="Минималистичный сборник инженерной документации, учебных конспектов и прикладных справочников."
     />
-    <link rel="stylesheet" href="/assets/styles.css" />
+    <link rel="stylesheet" href="/assets/styles.css?v=<?= htmlspecialchars($stylesVersion, ENT_QUOTES, 'UTF-8') ?>" />
   </head>
   <body>
     <button
@@ -173,7 +179,7 @@
       </main>
     </aside>
 
-    <script src="/assets/docs.js" defer></script>
-    <script src="/assets/app.js" defer></script>
+    <script src="/assets/docs.js?v=<?= htmlspecialchars($docsVersion, ENT_QUOTES, 'UTF-8') ?>" defer></script>
+    <script src="/assets/app.js?v=<?= htmlspecialchars($appVersion, ENT_QUOTES, 'UTF-8') ?>" defer></script>
   </body>
 </html>
