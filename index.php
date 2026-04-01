@@ -102,10 +102,7 @@ $appVersion = (string) @filemtime(__DIR__ . "/assets/app.js");
 
     <aside id="chat-panel" class="chat-panel" aria-hidden="true">
       <div class="chat-panel__header">
-        <div>
-          <p class="chat-panel__eyebrow">Discussion</p>
-          <h2>Общий чат</h2>
-        </div>
+        <div class="chat-panel__spacer" aria-hidden="true"></div>
         <button
           id="chat-close"
           class="chat-close"
@@ -150,16 +147,12 @@ $appVersion = (string) @filemtime(__DIR__ . "/assets/app.js");
               <div id="chat-mode-menu" class="chat-mode-menu" hidden>
                 <button class="chat-mode-option is-active" type="button" data-mode="room">
                   <span>Общий чат</span>
-                  <small>Публичная комната для всех</small>
                 </button>
                 <button class="chat-mode-option" type="button" data-mode="ai">
-                  <span>AI Assistant</span>
-                  <small>Mistral для задач и файлов</small>
+                  <span>Ассистент</span>
                 </button>
               </div>
             </div>
-
-            <p id="chat-mode-hint" class="chat-mode-hint">Публичная комната для всех.</p>
           </div>
 
           <div class="composer-row">

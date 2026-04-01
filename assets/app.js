@@ -44,9 +44,7 @@ const dropIndicator = document.querySelector("#drop-indicator");
 const chatModeButton = document.querySelector("#chat-mode-button");
 const chatModeMenu = document.querySelector("#chat-mode-menu");
 const chatModeLabel = document.querySelector("#chat-mode-label");
-const chatModeHint = document.querySelector("#chat-mode-hint");
 const chatModeOptions = [...document.querySelectorAll(".chat-mode-option")];
-const chatTitle = document.querySelector(".chat-panel__header h2");
 
 let profile = loadProfile();
 let pendingFiles = [];
@@ -413,7 +411,7 @@ function renderAiThread() {
 
     const meta = document.createElement("div");
     meta.className = "message__meta";
-    meta.textContent = "AI Assistant";
+    meta.textContent = "Ассистент";
 
     const text = document.createElement("div");
     text.className = "message__text";
@@ -429,7 +427,7 @@ function renderAiThread() {
     messagesNode.append(renderMessageNode({
       kind: AI_MODE,
       role: entry.role,
-      author: entry.role === "assistant" ? "Mistral AI" : profile.nickname,
+      author: entry.role === "assistant" ? "Ассистент" : profile.nickname,
       text: entry.text || "",
       createdAt: entry.createdAt,
       attachments: entry.attachments || [],
@@ -821,12 +819,7 @@ function setChatMode(nextMode) {
     // Ignore storage failures.
   }
 
-  chatModeLabel.textContent = currentMode === AI_MODE ? "AI Assistant" : "Общий чат";
-  chatModeHint.textContent =
-    currentMode === AI_MODE
-      ? "Приватный диалог с Mistral. Можно прикладывать HTML/TXT/JSON задания."
-      : "Публичная комната для всех.";
-  chatTitle.textContent = currentMode === AI_MODE ? "AI Assistant" : "Общий чат";
+  chatModeLabel.textContent = currentMode === AI_MODE ? "Ассистент" : "Общий чат";
   messageInput.placeholder =
     currentMode === AI_MODE ? "Напиши вопрос по заданию или коду" : "Сообщение";
 
