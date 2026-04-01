@@ -124,6 +124,44 @@ $appVersion = (string) @filemtime(__DIR__ . "/assets/app.js");
           <input id="file-input" type="file" name="file" multiple hidden />
           <div id="attachment-strip" class="attachment-strip" hidden></div>
 
+          <div class="composer-topbar">
+            <div class="chat-mode-picker">
+              <button
+                id="chat-mode-button"
+                class="chat-mode-button"
+                type="button"
+                aria-haspopup="true"
+                aria-expanded="false"
+                title="Выбрать режим чата"
+              >
+                <span id="chat-mode-label">Общий чат</span>
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    d="m6 9 6 6 6-6"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="1.8"
+                  />
+                </svg>
+              </button>
+
+              <div id="chat-mode-menu" class="chat-mode-menu" hidden>
+                <button class="chat-mode-option is-active" type="button" data-mode="room">
+                  <span>Общий чат</span>
+                  <small>Публичная комната для всех</small>
+                </button>
+                <button class="chat-mode-option" type="button" data-mode="ai">
+                  <span>AI Assistant</span>
+                  <small>Mistral для задач и файлов</small>
+                </button>
+              </div>
+            </div>
+
+            <p id="chat-mode-hint" class="chat-mode-hint">Публичная комната для всех.</p>
+          </div>
+
           <div class="composer-row">
             <button
               id="attach-button"

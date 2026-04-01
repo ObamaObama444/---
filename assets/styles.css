@@ -672,6 +672,33 @@ html[data-theme="dark"] .theme-toggle__moon {
   overflow-wrap: anywhere;
 }
 
+.message--assistant .message__author {
+  color: #2d4f8b;
+}
+
+html[data-theme="dark"] .message--assistant .message__author {
+  color: #9bc3ff;
+}
+
+.message__attachments-note {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.message__attachments-note span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 9px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  color: var(--text-muted);
+  font-family: var(--mono);
+  font-size: 0.7rem;
+}
+
 .message__image-link {
   display: inline-block;
   max-width: min(100%, 340px);
@@ -740,6 +767,87 @@ html[data-theme="dark"] .theme-toggle__moon {
   padding: 12px 14px 14px;
   border-top: 1px solid var(--line);
   background: var(--panel-strong);
+}
+
+.composer-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.chat-mode-picker {
+  position: relative;
+}
+
+.chat-mode-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--control);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.chat-mode-button svg {
+  width: 14px;
+  height: 14px;
+  color: var(--text-muted);
+}
+
+.chat-mode-menu {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 8px);
+  width: 240px;
+  padding: 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: 16px;
+  background: var(--panel-soft);
+  box-shadow: 0 18px 34px rgba(0, 0, 0, 0.12);
+}
+
+.chat-mode-option {
+  width: 100%;
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: none;
+  border-radius: 12px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.chat-mode-option span {
+  font-weight: 600;
+}
+
+.chat-mode-option small {
+  color: var(--text-muted);
+}
+
+.chat-mode-option:hover,
+.chat-mode-option:focus-visible {
+  background: var(--surface-hover);
+  outline: none;
+}
+
+.chat-mode-option.is-active {
+  background: var(--surface-active);
+}
+
+.chat-mode-hint {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.76rem;
+  line-height: 1.4;
+  text-align: right;
 }
 
 .attachment-strip {
@@ -931,6 +1039,15 @@ html[data-theme="dark"] .theme-toggle__moon {
     right: 8px;
     bottom: 8px;
     width: calc(100vw - 16px);
+  }
+
+  .composer-topbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .chat-mode-hint {
+    text-align: left;
   }
 
   .theme-toggle {

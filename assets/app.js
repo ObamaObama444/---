@@ -1,5 +1,32 @@
 const PROFILE_STORAGE_KEY = "open-room-profile-v1";
+const CHAT_MODE_STORAGE_KEY = "open-room-chat-mode-v1";
+const AI_THREAD_STORAGE_PREFIX = "open-room-ai-thread-v1:";
 const POLL_INTERVAL_MS = 2000;
+const TOUCH_OPEN_DELAY_MS = 650;
+const AI_MODE = "ai";
+const ROOM_MODE = "room";
+const MAX_AI_ATTACHMENT_SIZE = 512000;
+const MAX_AI_ATTACHMENT_TEXT_LENGTH = 120000;
+const TEXT_ATTACHMENT_TYPES = [
+  "text/",
+  "application/json",
+  "application/xml",
+  "application/xhtml+xml",
+  "application/javascript",
+];
+const TEXT_ATTACHMENT_EXTENSIONS = [
+  ".html",
+  ".htm",
+  ".txt",
+  ".md",
+  ".json",
+  ".xml",
+  ".csv",
+  ".js",
+  ".ts",
+  ".py",
+  ".sql",
+];
 
 const chatToggle = document.querySelector("#chat-toggle");
 const chatBackdrop = document.querySelector("#chat-backdrop");
@@ -14,9 +41,18 @@ const attachButton = document.querySelector("#attach-button");
 const sendButton = document.querySelector("#send-button");
 const attachmentStrip = document.querySelector("#attachment-strip");
 const dropIndicator = document.querySelector("#drop-indicator");
+const chatModeButton = document.querySelector("#chat-mode-button");
+const chatModeMenu = document.querySelector("#chat-mode-menu");
+const chatModeLabel = document.querySelector("#chat-mode-label");
+const chatModeHint = document.querySelector("#chat-mode-hint");
+const chatModeOptions = [...document.querySelectorAll(".chat-mode-option")];
+const chatTitle = document.querySelector(".chat-panel__header h2");
 
 let profile = loadProfile();
 let pendingFiles = [];
+let roomMessages = [];
+let aiThread = loadAiThread();
+let currentMode = loadChatMode();
 let dragDepth = 0;
 let isDraggingFiles = false;
 let isSubmitting = false;
@@ -29,7 +65,6 @@ let pollTimerId = null;
 let isPolling = false;
 let isToggleHovered = false;
 let touchOpenTimerId = null;
-const TOUCH_OPEN_DELAY_MS = 650;
 
 chatToggle.addEventListener("click", (event) => {
   event.preventDefault();
@@ -97,7 +132,42 @@ document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && isChatOpen) {
     setChatOpen(false, { restoreToggleFocus: true });
   }
+
+  if (event.key === "Escape") {
+    closeModeMenu();
+  }
 });
+
+chatModeButton.addEventListener("click", () => {
+  const nextExpanded = chatModeButton.getAttribute("aria-expanded") !== "true";
+  chatModeButton.setAttribute("aria-expanded", String(nextExpanded));
+  chatModeMenu.hidden = !nextExpanded;
+});
+
+document.addEventListener("click", (event) => {
+  if (!chatModeMenu || !chatModeButton) {
+    return;
+  }
+
+  if (chatModeMenu.hidden) {
+    return;
+  }
+
+  const target = event.target;
+
+  if (target instanceof Node && (chatModeMenu.contains(target) || chatModeButton.contains(target))) {
+    return;
+  }
+
+  closeModeMenu();
+});
+
+for (const option of chatModeOptions) {
+  option.addEventListener("click", () => {
+    setChatMode(option.dataset.mode === AI_MODE ? AI_MODE : ROOM_MODE);
+    closeModeMenu();
+  });
+}
 
 attachButton.addEventListener("click", () => {
   fileInput.click();
@@ -200,19 +270,12 @@ window.addEventListener("dragleave", (event) => {
   }
 });
 
-window.addEventListener("drop", () => {
-  resetDropState();
-});
-
-window.addEventListener("dragend", () => {
-  resetDropState();
-});
-
-window.addEventListener("blur", () => {
-  resetDropState();
-});
+window.addEventListener("drop", resetDropState);
+window.addEventListener("dragend", resetDropState);
+window.addEventListener("blur", resetDropState);
 
 setChatOpen(false);
+setChatMode(currentMode);
 autoResizeComposer();
 void bootstrapSession();
 
@@ -229,7 +292,9 @@ async function bootstrapSession() {
     profile.profileId = payload.session.profileId;
     profile.nickname = payload.session.nickname;
     saveProfile(profile);
-    renderMessages(payload.messages || []);
+    aiThread = loadAiThread();
+    roomMessages = payload.messages || [];
+    renderCurrentConversation();
     clearUnread();
     startPolling();
   } catch (error) {
@@ -261,27 +326,48 @@ async function pollMessages() {
   try {
     const suffix = lastMessageId ? `?after=${encodeURIComponent(lastMessageId)}` : "";
     const payload = await requestJson(`/api/messages.php${suffix}`);
+    const incoming = payload.messages || [];
 
-    for (const message of payload.messages || []) {
-      appendMessage(message);
+    if (incoming.length === 0) {
+      return;
+    }
+
+    roomMessages = lastMessageId ? [...roomMessages, ...incoming] : incoming;
+    roomMessages = roomMessages.slice(-250);
+
+    if (currentMode === ROOM_MODE) {
+      for (const message of incoming) {
+        appendRoomMessage(message);
+      }
+    } else if (incoming.some((message) => message.profileId !== profile.profileId)) {
+      setUnread(true);
     }
   } catch (_error) {
-    // The next poll will retry automatically.
+    // Ignore transient polling errors.
   } finally {
     isPolling = false;
   }
 }
 
-function renderMessages(items) {
+function renderCurrentConversation() {
+  if (currentMode === AI_MODE) {
+    renderAiThread();
+    return;
+  }
+
+  renderRoomMessages(roomMessages);
+}
+
+function renderRoomMessages(items) {
   isHydratingHistory = true;
   renderedMessageIds = new Set();
   lastMessageId = "";
   messagesNode.textContent = "";
-  items.forEach((item) => appendMessage(item));
+  items.forEach((item) => appendRoomMessage(item));
   isHydratingHistory = false;
 }
 
-function appendMessage(message) {
+function appendRoomMessage(message) {
   if (!message?.id) {
     return;
   }
@@ -300,45 +386,115 @@ function appendMessage(message) {
   renderedMessageIds.add(message.id);
   lastMessageId = message.id;
 
+  const article = renderMessageNode({
+    kind: ROOM_MODE,
+    role: message.profileId === profile.profileId ? "user" : "assistant",
+    author: message.author,
+    profileId: message.profileId,
+    text: message.text || "",
+    file: message.file || null,
+    createdAt: message.createdAt,
+  });
+
+  messagesNode.append(article);
+  messagesNode.scrollTop = messagesNode.scrollHeight;
+
+  if (!isHydratingHistory && message.profileId !== profile.profileId && !isChatOpen) {
+    setUnread(true);
+  }
+}
+
+function renderAiThread() {
+  messagesNode.textContent = "";
+
+  if (aiThread.length === 0) {
+    const empty = document.createElement("article");
+    empty.className = "message";
+
+    const meta = document.createElement("div");
+    meta.className = "message__meta";
+    meta.textContent = "AI Assistant";
+
+    const text = document.createElement("div");
+    text.className = "message__text";
+    text.textContent = "Можешь отправить вопрос по программированию или математике и приложить HTML-файл с заданием.";
+
+    empty.append(meta, text);
+    messagesNode.append(empty);
+    messagesNode.scrollTop = 0;
+    return;
+  }
+
+  aiThread.forEach((entry) => {
+    messagesNode.append(renderMessageNode({
+      kind: AI_MODE,
+      role: entry.role,
+      author: entry.role === "assistant" ? "Mistral AI" : profile.nickname,
+      text: entry.text || "",
+      createdAt: entry.createdAt,
+      attachments: entry.attachments || [],
+    }));
+  });
+
+  messagesNode.scrollTop = messagesNode.scrollHeight;
+}
+
+function renderMessageNode({ kind, role, author, profileId = "", text = "", file = null, createdAt, attachments = [] }) {
   const article = document.createElement("article");
   article.className = "message";
 
-  if (message.profileId === profile.profileId) {
+  if (kind === ROOM_MODE && profileId === profile.profileId) {
     article.classList.add("message--own");
+  }
+
+  if (kind === AI_MODE && role === "assistant") {
+    article.classList.add("message--assistant");
   }
 
   const meta = document.createElement("div");
   meta.className = "message__meta";
 
-  const author = document.createElement("span");
-  author.className = "message__author";
-  author.textContent = message.author;
+  const authorNode = document.createElement("span");
+  authorNode.className = "message__author";
+  authorNode.textContent = author;
 
   const time = document.createElement("span");
-  time.textContent = formatTime(message.createdAt);
-
-  meta.append(author, time);
+  time.textContent = formatTime(createdAt);
+  meta.append(authorNode, time);
   article.append(meta);
 
-  if (message.type === "text") {
-    const text = document.createElement("div");
-    text.className = "message__text";
-    text.textContent = message.text;
-    article.append(text);
+  if (text) {
+    const textNode = document.createElement("div");
+    textNode.className = "message__text";
+    textNode.textContent = text;
+    article.append(textNode);
   }
 
-  if (message.type === "file" && message.file) {
-    if (isImageFile(message.file)) {
+  if (attachments.length > 0) {
+    const note = document.createElement("div");
+    note.className = "message__attachments-note";
+
+    attachments.forEach((attachment) => {
+      const chip = document.createElement("span");
+      chip.textContent = attachment.name;
+      note.append(chip);
+    });
+
+    article.append(note);
+  }
+
+  if (kind === ROOM_MODE && file) {
+    if (isImageFile(file)) {
       const previewLink = document.createElement("a");
       previewLink.className = "message__image-link";
-      previewLink.href = buildInlineFileUrl(message.file.id);
+      previewLink.href = buildInlineFileUrl(file.id);
       previewLink.target = "_blank";
       previewLink.rel = "noreferrer";
 
       const image = document.createElement("img");
       image.className = "message__image";
-      image.src = buildInlineFileUrl(message.file.id);
-      image.alt = message.file.originalName;
+      image.src = buildInlineFileUrl(file.id);
+      image.alt = file.originalName;
       image.loading = "lazy";
 
       previewLink.append(image);
@@ -353,21 +509,21 @@ function appendMessage(message) {
 
     const name = document.createElement("span");
     name.className = "message__file-name";
-    name.textContent = message.file.originalName;
+    name.textContent = file.originalName;
 
     const size = document.createElement("span");
     size.className = "message__file-size";
-    size.textContent = `${formatBytes(message.file.size)} • ${message.file.mimeType || "файл"}`;
+    size.textContent = `${formatBytes(file.size)} • ${file.mimeType || "файл"}`;
 
     info.append(name, size);
 
     const actions = document.createElement("div");
     actions.className = "file-actions";
 
-    if (isImageFile(message.file)) {
+    if (isImageFile(file)) {
       const openLink = document.createElement("a");
       openLink.className = "file-link";
-      openLink.href = buildInlineFileUrl(message.file.id);
+      openLink.href = buildInlineFileUrl(file.id);
       openLink.target = "_blank";
       openLink.rel = "noreferrer";
       openLink.textContent = "Открыть";
@@ -376,21 +532,16 @@ function appendMessage(message) {
 
     const downloadLink = document.createElement("a");
     downloadLink.className = "file-link";
-    downloadLink.href = buildDownloadFileUrl(message.file.id);
+    downloadLink.href = buildDownloadFileUrl(file.id);
     downloadLink.textContent = "Скачать";
-    downloadLink.setAttribute("download", message.file.originalName);
+    downloadLink.setAttribute("download", file.originalName);
     actions.append(downloadLink);
 
     fileBox.append(info, actions);
     article.append(fileBox);
   }
 
-  messagesNode.append(article);
-  messagesNode.scrollTop = messagesNode.scrollHeight;
-
-  if (!isHydratingHistory && message.profileId !== profile.profileId && !isChatOpen) {
-    setUnread(true);
-  }
+  return article;
 }
 
 function queueFiles(fileList) {
@@ -445,6 +596,7 @@ function resetDropState() {
 function setComposerBusy(isBusy) {
   attachButton.disabled = isBusy;
   sendButton.disabled = isBusy;
+  chatModeButton.disabled = isBusy;
 }
 
 async function submitComposer() {
@@ -462,36 +614,16 @@ async function submitComposer() {
   setComposerBusy(true);
 
   try {
-    if (text) {
-      const payload = await requestJson("/api/messages.php", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          profileId: profile.profileId,
-          nickname: profile.nickname,
-          text,
-        }),
-      });
-
-      appendMessage(payload.message);
-      messageInput.value = "";
-      autoResizeComposer();
+    if (currentMode === AI_MODE) {
+      await submitAiMessage(text);
+    } else {
+      await submitRoomMessage(text);
     }
 
-    if (pendingFiles.length > 0) {
-      const filesToUpload = [...pendingFiles];
-
-      pendingFiles = [];
-      renderAttachmentStrip();
-
-      for (const file of filesToUpload) {
-        const message = await uploadFile(file);
-        appendMessage(message);
-      }
-    }
-
+    messageInput.value = "";
+    pendingFiles = [];
+    renderAttachmentStrip();
+    autoResizeComposer();
     messageInput.focus();
   } catch (error) {
     window.alert(error.message || "Не удалось отправить сообщение.");
@@ -501,7 +633,78 @@ async function submitComposer() {
   }
 }
 
-async function uploadFile(file) {
+async function submitRoomMessage(text) {
+  if (text) {
+    const payload = await requestJson("/api/messages.php", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        profileId: profile.profileId,
+        nickname: profile.nickname,
+        text,
+      }),
+    });
+
+    roomMessages = [...roomMessages, payload.message].slice(-250);
+    appendRoomMessage(payload.message);
+  }
+
+  if (pendingFiles.length > 0) {
+    for (const file of pendingFiles) {
+      const message = await uploadRoomFile(file);
+      roomMessages = [...roomMessages, message].slice(-250);
+      appendRoomMessage(message);
+    }
+  }
+}
+
+async function submitAiMessage(text) {
+  const preparedAttachments = await prepareAiAttachments(pendingFiles);
+
+  if (!text && preparedAttachments.length === 0) {
+    throw new Error("Для AI-чата нужен текст или поддерживаемый HTML/TXT/JSON-файл.");
+  }
+
+  const userEntry = {
+    id: generateLocalId(),
+    role: "user",
+    text: text || "Разбери вложенное задание.",
+    createdAt: new Date().toISOString(),
+    attachments: preparedAttachments.map((attachment) => ({
+      name: attachment.name,
+      mimeType: attachment.mimeType,
+    })),
+  };
+
+  aiThread = [...aiThread, userEntry];
+  saveAiThread(aiThread);
+  renderAiThread();
+
+  const payload = await requestJson("/api/ai.php", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      profileId: profile.profileId,
+      nickname: profile.nickname,
+      message: userEntry.text,
+      attachments: preparedAttachments,
+      history: aiThread.slice(-10).map((entry) => ({
+        role: entry.role,
+        text: entry.text,
+      })),
+    }),
+  });
+
+  aiThread = [...aiThread, payload.message];
+  saveAiThread(aiThread);
+  renderAiThread();
+}
+
+async function uploadRoomFile(file) {
   const formData = new FormData();
   formData.append("file", file);
   formData.append("profileId", profile.profileId);
@@ -513,6 +716,31 @@ async function uploadFile(file) {
   });
 
   return payload.message;
+}
+
+async function prepareAiAttachments(files) {
+  const prepared = [];
+
+  for (const file of files) {
+    if (!isTextAttachment(file)) {
+      throw new Error(`AI-чат пока принимает HTML/TXT/JSON/MD/кодовые текстовые файлы. Файл ${file.name} не поддерживается.`);
+    }
+
+    if (file.size > MAX_AI_ATTACHMENT_SIZE) {
+      throw new Error(`Файл ${file.name} слишком большой для AI-чата. Лимит 500 КБ на файл.`);
+    }
+
+    const raw = await file.text();
+    const trimmed = raw.slice(0, MAX_AI_ATTACHMENT_TEXT_LENGTH);
+
+    prepared.push({
+      name: file.name,
+      mimeType: file.type || "text/plain",
+      content: trimmed,
+    });
+  }
+
+  return prepared;
 }
 
 async function requestJson(url, options = {}) {
@@ -565,7 +793,7 @@ function saveProfile(nextProfile) {
   try {
     localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(nextProfile));
   } catch (_error) {
-    // Ignore storage write failures and continue with the in-memory profile.
+    // Ignore storage failures.
   }
 }
 
@@ -574,6 +802,62 @@ function createProfile() {
     profileId: generateProfileId(),
     nickname: `Гость ${Math.floor(1000 + Math.random() * 9000)}`,
   };
+}
+
+function loadChatMode() {
+  try {
+    return localStorage.getItem(CHAT_MODE_STORAGE_KEY) === AI_MODE ? AI_MODE : ROOM_MODE;
+  } catch (_error) {
+    return ROOM_MODE;
+  }
+}
+
+function setChatMode(nextMode) {
+  currentMode = nextMode === AI_MODE ? AI_MODE : ROOM_MODE;
+
+  try {
+    localStorage.setItem(CHAT_MODE_STORAGE_KEY, currentMode);
+  } catch (_error) {
+    // Ignore storage failures.
+  }
+
+  chatModeLabel.textContent = currentMode === AI_MODE ? "AI Assistant" : "Общий чат";
+  chatModeHint.textContent =
+    currentMode === AI_MODE
+      ? "Приватный диалог с Mistral. Можно прикладывать HTML/TXT/JSON задания."
+      : "Публичная комната для всех.";
+  chatTitle.textContent = currentMode === AI_MODE ? "AI Assistant" : "Общий чат";
+  messageInput.placeholder =
+    currentMode === AI_MODE ? "Напиши вопрос по заданию или коду" : "Сообщение";
+
+  chatModeOptions.forEach((option) => {
+    option.classList.toggle("is-active", option.dataset.mode === currentMode);
+  });
+
+  renderCurrentConversation();
+}
+
+function closeModeMenu() {
+  chatModeMenu.hidden = true;
+  chatModeButton.setAttribute("aria-expanded", "false");
+}
+
+function loadAiThread() {
+  try {
+    const raw = localStorage.getItem(AI_THREAD_STORAGE_PREFIX + profile.profileId);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed.slice(-40) : [];
+  } catch (_error) {
+    return [];
+  }
+}
+
+function saveAiThread(thread) {
+  try {
+    localStorage.setItem(AI_THREAD_STORAGE_PREFIX + profile.profileId, JSON.stringify(thread.slice(-40)));
+  } catch (_error) {
+    // Ignore storage failures.
+  }
 }
 
 function generateProfileId() {
@@ -601,6 +885,10 @@ function generateProfileId() {
   return `guest-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
 }
 
+function generateLocalId() {
+  return `${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
+}
+
 function setChatOpen(nextState, options = {}) {
   const { focusComposer = false, restoreToggleFocus = false } = options;
 
@@ -617,6 +905,7 @@ function setChatOpen(nextState, options = {}) {
 
   if (!nextState) {
     resetDropState();
+    closeModeMenu();
 
     if (restoreToggleFocus) {
       chatToggle.focus({ preventScroll: true });
@@ -698,6 +987,17 @@ function buildInlineFileUrl(fileId) {
 
 function buildDownloadFileUrl(fileId) {
   return `/api/file.php?id=${encodeURIComponent(fileId)}&mode=download`;
+}
+
+function isTextAttachment(file) {
+  const mimeType = String(file.type || "").toLowerCase();
+  const fileName = String(file.name || "").toLowerCase();
+
+  if (TEXT_ATTACHMENT_TYPES.some((prefix) => mimeType.startsWith(prefix))) {
+    return true;
+  }
+
+  return TEXT_ATTACHMENT_EXTENSIONS.some((extension) => fileName.endsWith(extension));
 }
 
 function extractFilesFromClipboard(clipboardData) {

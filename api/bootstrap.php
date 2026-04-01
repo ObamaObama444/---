@@ -325,3 +325,21 @@ function upload_error_message(int $errorCode): string
     return 'Не удалось загрузить файл.';
 }
 
+function env_value(string $key, string $fallback = ''): string
+{
+    $value = getenv($key);
+
+    if (is_string($value) && $value !== '') {
+        return $value;
+    }
+
+    if (isset($_SERVER[$key]) && is_string($_SERVER[$key]) && $_SERVER[$key] !== '') {
+        return $_SERVER[$key];
+    }
+
+    if (isset($_ENV[$key]) && is_string($_ENV[$key]) && $_ENV[$key] !== '') {
+        return $_ENV[$key];
+    }
+
+    return $fallback;
+}
