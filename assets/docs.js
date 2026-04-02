@@ -154,11 +154,19 @@ function initDocForumToggle() {
     clearDocForumTouchOpenTimer();
   });
 
-  document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && isDocForumOpen) {
+  window.addEventListener(
+    "keydown",
+    (event) => {
+      if (event.key !== "Escape" || !isDocForumOpen) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
       setDocForumOpen(false, { restoreToggleFocus: true });
-    }
-  });
+    },
+    true
+  );
 
   setDocForumOpen(false);
 }
