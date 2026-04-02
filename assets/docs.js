@@ -1,6 +1,8 @@
 const THEME_STORAGE_KEY = "reference-theme-v1";
 const LIGHT_THEME = "light";
 const DARK_THEME = "dark";
+const DOC_FORUM_PROFILE_STORAGE_KEY = "open-room-profile-v1";
+const DOC_COMMENT_POLL_INTERVAL_MS = 2500;
 
 const rootNode = document.documentElement;
 const themeToggleNode = document.querySelector("#theme-toggle");
@@ -19,6 +21,7 @@ const readerSummaryNode = document.querySelector("#reader-summary");
 const readerContentNode = document.querySelector("#reader-content");
 
 let DOC_LIBRARY = [];
+const docCommentsState = createDocCommentsState();
 
 function initTheme() {
   const nextTheme = readStoredTheme();
@@ -66,6 +69,89 @@ function applyTheme(theme) {
   themeToggleNode.setAttribute("title", nextTitle);
 }
 
+function createDocCommentsState() {
+  return {
+    profile: loadDocForumProfile(),
+    activeDocId: "",
+    items: [],
+    lastId: "",
+    pendingFiles: [],
+    isSubmitting: false,
+    isPolling: false,
+    pollTimerId: null,
+    listNode: null,
+    countNode: null,
+    inputNode: null,
+    fileInputNode: null,
+    attachmentStripNode: null,
+    attachButtonNode: null,
+    sendButtonNode: null,
+  };
+}
+
+function loadDocForumProfile() {
+  try {
+    const raw = localStorage.getItem(DOC_FORUM_PROFILE_STORAGE_KEY);
+
+    if (!raw) {
+      const profile = createDocForumProfile();
+      localStorage.setItem(DOC_FORUM_PROFILE_STORAGE_KEY, JSON.stringify(profile));
+      return profile;
+    }
+
+    const parsed = JSON.parse(raw);
+
+    if (!parsed || !parsed.profileId || !parsed.nickname) {
+      const profile = createDocForumProfile();
+      localStorage.setItem(DOC_FORUM_PROFILE_STORAGE_KEY, JSON.stringify(profile));
+      return profile;
+    }
+
+    return {
+      profileId: String(parsed.profileId),
+      nickname: String(parsed.nickname),
+    };
+  } catch (_error) {
+    return createDocForumProfile();
+  }
+}
+
+function createDocForumProfile() {
+  return {
+    profileId: docGenerateProfileId(),
+    nickname: `Гость ${Math.floor(1000 + Math.random() * 9000)}`,
+  };
+}
+
+function docGenerateProfileId() {
+  if (typeof crypto !== "undefined") {
+    if (typeof crypto.randomUUID === "function") {
+      return crypto.randomUUID();
+    }
+
+    if (typeof crypto.getRandomValues === "function") {
+      const bytes = crypto.getRandomValues(new Uint8Array(16));
+      bytes[6] = (bytes[6] & 0x0f) | 0x40;
+      bytes[8] = (bytes[8] & 0x3f) | 0x80;
+
+      const hex = [...bytes].map((byte) => byte.toString(16).padStart(2, "0"));
+      return [
+        hex.slice(0, 4).join(""),
+        hex.slice(4, 6).join(""),
+        hex.slice(6, 8).join(""),
+        hex.slice(8, 10).join(""),
+        hex.slice(10, 16).join(""),
+      ].join("-");
+    }
+  }
+
+  return `doc-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
+}
+
+function docFormatNumber(value) {
+  return String(value).padStart(2, "0");
+}
+
 function initDocsLibrary() {
   const state = {
     query: "",
@@ -75,7 +161,8 @@ function initDocsLibrary() {
 
   const categories = ["All", ...new Set(DOC_LIBRARY.map((doc) => doc.category))];
   docTotalCountNode.textContent = `${DOC_LIBRARY.length} docs`;
-  categoryCountNode.textContent = `${String(categories.length - 1).padStart(2, "0")} collections`;
+  categoryCountNode.textContent = `${docFormatNumber(categories.length - 1)} collections`;
+  startDocCommentsPolling();
 
   docSearchNode.addEventListener("input", () => {
     state.query = docSearchNode.value.trim().toLowerCase();
@@ -196,7 +283,7 @@ function renderDocList(docs, state, onSelect) {
     title.textContent = category;
 
     const count = document.createElement("span");
-    count.textContent = `${String(items.length).padStart(2, "0")} docs`;
+    count.textContent = `${docFormatNumber(items.length)} docs`;
 
     head.append(title, count);
     section.append(head);
@@ -214,13 +301,21 @@ function renderDocList(docs, state, onSelect) {
       const titleRow = document.createElement("div");
       titleRow.className = "doc-item__head";
 
+      const identity = document.createElement("div");
+      identity.className = "doc-item__identity";
+
+      const number = document.createElement("span");
+      number.className = "doc-item__number";
+      number.textContent = docFormatNumber(doc.number);
+
       const name = document.createElement("h3");
       name.textContent = doc.title;
 
       const length = document.createElement("span");
       length.textContent = doc.readTime;
 
-      titleRow.append(name, length);
+      identity.append(number, name);
+      titleRow.append(identity, length);
 
       const summary = document.createElement("p");
       summary.textContent = doc.summary;
@@ -253,7 +348,7 @@ function openDoc(doc, options = {}) {
   readerCategoryNode.textContent = doc.category;
   readerLengthNode.textContent = doc.readTime;
   readerUpdatedNode.textContent = doc.updated;
-  readerTitleNode.textContent = doc.title;
+  readerTitleNode.textContent = `${docFormatNumber(doc.number)}. ${doc.title}`;
   readerSummaryNode.textContent = doc.summary;
 
   readerContentNode.textContent = "";
@@ -262,6 +357,9 @@ function openDoc(doc, options = {}) {
   doc.sections.forEach((section) => {
     readerContentNode.append(renderDocSection(section));
   });
+
+  readerContentNode.append(renderDocCommentsSection(doc));
+  activateDocCommentsThread(doc.id);
 
   if (updateHash) {
     window.history.replaceState(null, "", `#${doc.id}`);
@@ -334,7 +432,562 @@ function renderDocSection(section) {
   return node;
 }
 
+function renderDocCommentsSection(doc) {
+  const section = document.createElement("section");
+  section.className = "reader-comments";
+
+  const head = document.createElement("div");
+  head.className = "reader-comments__head";
+
+  const titleWrap = document.createElement("div");
+
+  const eyebrow = document.createElement("p");
+  eyebrow.className = "eyebrow";
+  eyebrow.textContent = `Module ${docFormatNumber(doc.number)}`;
+
+  const title = document.createElement("h3");
+  title.textContent = "Комментарии";
+
+  const hint = document.createElement("p");
+  hint.className = "reader-comments__hint";
+  hint.textContent = "Гости могут отправлять сюда текст и файлы по этому модулю.";
+
+  titleWrap.append(eyebrow, title, hint);
+
+  const count = document.createElement("span");
+  count.className = "reader-comments__count";
+  count.textContent = "0 комментариев";
+
+  head.append(titleWrap, count);
+
+  const list = document.createElement("div");
+  list.className = "reader-comments__list";
+
+  const form = document.createElement("form");
+  form.className = "reader-comments__composer";
+
+  const fileInput = document.createElement("input");
+  fileInput.type = "file";
+  fileInput.multiple = true;
+  fileInput.hidden = true;
+
+  const attachmentStrip = document.createElement("div");
+  attachmentStrip.className = "attachment-strip";
+  attachmentStrip.hidden = true;
+
+  const row = document.createElement("div");
+  row.className = "composer-row";
+
+  const attachButton = document.createElement("button");
+  attachButton.className = "icon-button";
+  attachButton.type = "button";
+  attachButton.setAttribute("aria-label", "Прикрепить файл к комментарию");
+  attachButton.setAttribute("title", "Прикрепить файл");
+  attachButton.innerHTML = `
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="M8.5 12.5 15 6a3.5 3.5 0 1 1 5 5l-9 9a5.5 5.5 0 0 1-7.8-7.8l9.2-9.2"
+        fill="none"
+        stroke="currentColor"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        stroke-width="1.8"
+      />
+    </svg>`;
+
+  const messageBox = document.createElement("label");
+  messageBox.className = "message-box";
+
+  const input = document.createElement("textarea");
+  input.rows = 1;
+  input.maxLength = 1500;
+  input.placeholder = "Комментарий по модулю";
+  messageBox.append(input);
+
+  const sendButton = document.createElement("button");
+  sendButton.className = "icon-button icon-button--send";
+  sendButton.type = "submit";
+  sendButton.setAttribute("aria-label", "Отправить комментарий");
+  sendButton.setAttribute("title", "Отправить");
+  sendButton.innerHTML = `
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="M21 3 10 14"
+        fill="none"
+        stroke="currentColor"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        stroke-width="1.8"
+      />
+      <path
+        d="m21 3-7 18-4-7-7-4 18-7Z"
+        fill="none"
+        stroke="currentColor"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        stroke-width="1.8"
+      />
+    </svg>`;
+
+  row.append(attachButton, messageBox, sendButton);
+  form.append(fileInput, attachmentStrip, row);
+  section.append(head, list, form);
+
+  docCommentsState.listNode = list;
+  docCommentsState.countNode = count;
+  docCommentsState.inputNode = input;
+  docCommentsState.fileInputNode = fileInput;
+  docCommentsState.attachmentStripNode = attachmentStrip;
+  docCommentsState.attachButtonNode = attachButton;
+  docCommentsState.sendButtonNode = sendButton;
+
+  attachButton.addEventListener("click", () => {
+    fileInput.click();
+  });
+
+  fileInput.addEventListener("change", () => {
+    docQueueCommentFiles(fileInput.files);
+    fileInput.value = "";
+  });
+
+  input.addEventListener("input", () => {
+    docAutoResizeCommentInput();
+  });
+
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
+      event.preventDefault();
+      void docSubmitComment();
+    }
+  });
+
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    void docSubmitComment();
+  });
+
+  docAutoResizeCommentInput();
+  docRenderCommentAttachmentStrip();
+  docRenderCommentList();
+
+  return section;
+}
+
+function activateDocCommentsThread(docId) {
+  const isNewDoc = docCommentsState.activeDocId !== docId;
+  docCommentsState.activeDocId = docId;
+  docCommentsState.profile = loadDocForumProfile();
+
+  if (isNewDoc) {
+    docCommentsState.items = [];
+    docCommentsState.lastId = "";
+    docCommentsState.pendingFiles = [];
+  }
+
+  docRenderCommentAttachmentStrip();
+  docRenderCommentList();
+  void docSyncComments(true);
+}
+
+function startDocCommentsPolling() {
+  if (docCommentsState.pollTimerId) {
+    return;
+  }
+
+  docCommentsState.pollTimerId = window.setInterval(() => {
+    if (!docCommentsState.activeDocId) {
+      return;
+    }
+
+    void docSyncComments(false);
+  }, DOC_COMMENT_POLL_INTERVAL_MS);
+}
+
+async function docSyncComments(reset) {
+  if (docCommentsState.isPolling || !docCommentsState.activeDocId) {
+    return;
+  }
+
+  const docId = docCommentsState.activeDocId;
+  docCommentsState.isPolling = true;
+
+  try {
+    const search = new URLSearchParams({ docId });
+
+    if (!reset && docCommentsState.lastId) {
+      search.set("after", docCommentsState.lastId);
+    }
+
+    const payload = await docRequestJson(`/api/comments.php?${search.toString()}`);
+    const incoming = Array.isArray(payload.comments) ? payload.comments : [];
+
+    if (docCommentsState.activeDocId !== docId) {
+      return;
+    }
+
+    docCommentsState.items = reset
+      ? incoming
+      : docMergeCommentItems(docCommentsState.items, incoming);
+    docCommentsState.lastId =
+      docCommentsState.items.length > 0
+        ? String(docCommentsState.items[docCommentsState.items.length - 1].id || "")
+        : "";
+    docRenderCommentList();
+  } catch (_error) {
+    // Ignore polling hiccups for comments.
+  } finally {
+    docCommentsState.isPolling = false;
+  }
+}
+
+function docMergeCommentItems(existing, incoming) {
+  const next = [...existing];
+  const ids = new Set(next.map((item) => item.id));
+
+  incoming.forEach((item) => {
+    if (!item?.id || ids.has(item.id)) {
+      return;
+    }
+
+    ids.add(item.id);
+    next.push(item);
+  });
+
+  return next.slice(-300);
+}
+
+function docRenderCommentList() {
+  if (!docCommentsState.listNode || !docCommentsState.countNode) {
+    return;
+  }
+
+  docCommentsState.listNode.textContent = "";
+  docCommentsState.countNode.textContent = `${docCommentsState.items.length} комментариев`;
+
+  if (docCommentsState.items.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "reader-comments__empty";
+    empty.textContent = "Пока пусто. Можно оставить первый комментарий или прикрепить файл.";
+    docCommentsState.listNode.append(empty);
+    return;
+  }
+
+  docCommentsState.items.forEach((comment) => {
+    docCommentsState.listNode.append(docRenderCommentItem(comment));
+  });
+}
+
+function docRenderCommentItem(comment) {
+  const article = document.createElement("article");
+  article.className = "doc-comment";
+
+  if (comment.profileId === docCommentsState.profile.profileId) {
+    article.classList.add("is-own");
+  }
+
+  const meta = document.createElement("div");
+  meta.className = "doc-comment__meta";
+
+  const author = document.createElement("span");
+  author.className = "doc-comment__author";
+  author.textContent = comment.author || "Гость";
+
+  const time = document.createElement("span");
+  time.textContent = docFormatCommentTime(comment.createdAt);
+
+  meta.append(author, time);
+  article.append(meta);
+
+  if (comment.text) {
+    const text = document.createElement("div");
+    text.className = "doc-comment__text";
+    text.textContent = comment.text;
+    article.append(text);
+  }
+
+  if (comment.file) {
+    const file = comment.file;
+
+    if (docIsImageFile(file)) {
+      const previewLink = document.createElement("a");
+      previewLink.className = "doc-comment__image-link";
+      previewLink.href = docBuildInlineFileUrl(file.id);
+      previewLink.target = "_blank";
+      previewLink.rel = "noreferrer";
+
+      const image = document.createElement("img");
+      image.className = "doc-comment__image";
+      image.src = docBuildInlineFileUrl(file.id);
+      image.alt = file.originalName;
+      image.loading = "lazy";
+
+      previewLink.append(image);
+      article.append(previewLink);
+    }
+
+    const fileBox = document.createElement("div");
+    fileBox.className = "doc-comment__file";
+
+    const info = document.createElement("div");
+    info.className = "doc-comment__file-info";
+
+    const name = document.createElement("span");
+    name.className = "doc-comment__file-name";
+    name.textContent = file.originalName;
+
+    const size = document.createElement("span");
+    size.className = "doc-comment__file-size";
+    size.textContent = `${docFormatBytes(file.size)} • ${file.mimeType || "файл"}`;
+
+    info.append(name, size);
+
+    const actions = document.createElement("div");
+    actions.className = "file-actions";
+
+    if (docIsImageFile(file)) {
+      const openLink = document.createElement("a");
+      openLink.className = "file-link";
+      openLink.href = docBuildInlineFileUrl(file.id);
+      openLink.target = "_blank";
+      openLink.rel = "noreferrer";
+      openLink.textContent = "Открыть";
+      actions.append(openLink);
+    }
+
+    const downloadLink = document.createElement("a");
+    downloadLink.className = "file-link";
+    downloadLink.href = docBuildDownloadFileUrl(file.id);
+    downloadLink.textContent = "Скачать";
+    downloadLink.setAttribute("download", file.originalName);
+    actions.append(downloadLink);
+
+    fileBox.append(info, actions);
+    article.append(fileBox);
+  }
+
+  return article;
+}
+
+function docQueueCommentFiles(fileList) {
+  const files = [...(fileList || [])].filter((file) => file.size > 0);
+
+  if (!files.length) {
+    return;
+  }
+
+  docCommentsState.pendingFiles = [...docCommentsState.pendingFiles, ...files];
+  docRenderCommentAttachmentStrip();
+}
+
+function docRenderCommentAttachmentStrip() {
+  if (!docCommentsState.attachmentStripNode) {
+    return;
+  }
+
+  const strip = docCommentsState.attachmentStripNode;
+  strip.textContent = "";
+  strip.hidden = docCommentsState.pendingFiles.length === 0;
+
+  docCommentsState.pendingFiles.forEach((file, index) => {
+    const chip = document.createElement("div");
+    chip.className = "attachment-chip";
+
+    const name = document.createElement("span");
+    name.className = "attachment-chip__name";
+    name.textContent = file.name;
+
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "attachment-chip__remove";
+    remove.setAttribute("aria-label", `Убрать ${file.name}`);
+    remove.textContent = "x";
+    remove.addEventListener("click", () => {
+      docCommentsState.pendingFiles = docCommentsState.pendingFiles.filter((_, currentIndex) => currentIndex !== index);
+      docRenderCommentAttachmentStrip();
+    });
+
+    chip.append(name, remove);
+    strip.append(chip);
+  });
+}
+
+function docSetCommentComposerBusy(isBusy) {
+  if (docCommentsState.attachButtonNode) {
+    docCommentsState.attachButtonNode.disabled = isBusy;
+  }
+
+  if (docCommentsState.sendButtonNode) {
+    docCommentsState.sendButtonNode.disabled = isBusy;
+  }
+
+  if (docCommentsState.inputNode) {
+    docCommentsState.inputNode.disabled = isBusy;
+  }
+}
+
+async function docSubmitComment() {
+  if (docCommentsState.isSubmitting || !docCommentsState.activeDocId) {
+    return;
+  }
+
+  const text = docCommentsState.inputNode ? docCommentsState.inputNode.value.trim() : "";
+  const files = [...docCommentsState.pendingFiles];
+
+  if (!text && files.length === 0) {
+    return;
+  }
+
+  const docId = docCommentsState.activeDocId;
+  docCommentsState.isSubmitting = true;
+  docSetCommentComposerBusy(true);
+
+  try {
+    if (text) {
+      const payload = await docRequestJson("/api/comments.php", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          docId,
+          profileId: docCommentsState.profile.profileId,
+          nickname: docCommentsState.profile.nickname,
+          text,
+        }),
+      });
+
+      if (docCommentsState.activeDocId === docId) {
+        docCommentsState.items = docMergeCommentItems(docCommentsState.items, [payload.comment]);
+        docCommentsState.lastId = String(payload.comment.id || docCommentsState.lastId);
+        docRenderCommentList();
+      }
+    }
+
+    if (docCommentsState.inputNode) {
+      docCommentsState.inputNode.value = "";
+      docAutoResizeCommentInput();
+      docCommentsState.inputNode.focus();
+    }
+
+    docCommentsState.pendingFiles = [];
+    docRenderCommentAttachmentStrip();
+
+    if (files.length > 0) {
+      void docUploadCommentFilesInBackground(docId, files);
+    }
+  } catch (error) {
+    window.alert(error.message || "Не удалось отправить комментарий.");
+  } finally {
+    docCommentsState.isSubmitting = false;
+    docSetCommentComposerBusy(false);
+  }
+}
+
+async function docUploadCommentFilesInBackground(docId, files) {
+  for (const file of files) {
+    try {
+      const payload = await docUploadCommentFile(docId, file);
+
+      if (docCommentsState.activeDocId !== docId) {
+        continue;
+      }
+
+      docCommentsState.items = docMergeCommentItems(docCommentsState.items, [payload.comment]);
+      docCommentsState.lastId = String(payload.comment.id || docCommentsState.lastId);
+      docRenderCommentList();
+    } catch (error) {
+      window.alert(error.message || `Не удалось загрузить файл ${file.name}.`);
+    }
+  }
+}
+
+async function docUploadCommentFile(docId, file) {
+  const formData = new FormData();
+  formData.append("docId", docId);
+  formData.append("profileId", docCommentsState.profile.profileId);
+  formData.append("nickname", docCommentsState.profile.nickname);
+  formData.append("file", file);
+
+  return docRequestJson("/api/comment-upload.php", {
+    method: "POST",
+    body: formData,
+  });
+}
+
+function docAutoResizeCommentInput() {
+  if (!docCommentsState.inputNode) {
+    return;
+  }
+
+  docCommentsState.inputNode.style.height = "auto";
+  docCommentsState.inputNode.style.height = `${Math.min(Math.max(docCommentsState.inputNode.scrollHeight, 54), 180)}px`;
+}
+
+async function docRequestJson(url, options = {}) {
+  const response = await fetch(url, options);
+  const raw = await response.text();
+
+  let payload = {};
+
+  try {
+    payload = raw ? JSON.parse(raw) : {};
+  } catch (_error) {
+    payload = {};
+  }
+
+  if (!response.ok || !payload?.ok) {
+    throw new Error(payload?.error || "Запрос завершился с ошибкой.");
+  }
+
+  return payload;
+}
+
+function docBuildInlineFileUrl(fileId) {
+  return `/api/file.php?id=${encodeURIComponent(fileId)}&mode=inline`;
+}
+
+function docBuildDownloadFileUrl(fileId) {
+  return `/api/file.php?id=${encodeURIComponent(fileId)}&mode=download`;
+}
+
+function docIsImageFile(file) {
+  return String(file.mimeType || "").startsWith("image/");
+}
+
+function docFormatBytes(value) {
+  if (!Number.isFinite(value)) {
+    return "0 Б";
+  }
+
+  const units = ["Б", "КБ", "МБ", "ГБ"];
+  let size = value;
+  let unitIndex = 0;
+
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024;
+    unitIndex += 1;
+  }
+
+  return `${size.toFixed(size >= 10 || unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
+}
+
+function docFormatCommentTime(value) {
+  try {
+    return new Intl.DateTimeFormat("ru-RU", {
+      day: "2-digit",
+      month: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    }).format(new Date(value));
+  } catch (_error) {
+    return "--:--";
+  }
+}
+
 function renderEmptyReader() {
+  docCommentsState.activeDocId = "";
+  docCommentsState.items = [];
+  docCommentsState.lastId = "";
   readerCategoryNode.textContent = "Library";
   readerLengthNode.textContent = "";
   readerUpdatedNode.textContent = "";
@@ -2034,7 +2687,10 @@ curl http://127.0.0.1:8000/api/health`,
   },
 ];
 
-DOC_LIBRARY = DOC_CONFIGS.map(buildDoc);
+DOC_LIBRARY = DOC_CONFIGS.map((config, index) => ({
+  ...buildDoc(config),
+  number: index + 1,
+}));
 initTheme();
 
 if (

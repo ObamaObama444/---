@@ -11,7 +11,7 @@ if ($fileId === '') {
     text_response('Файл не найден.', 404);
 }
 
-$message = find_file_message($fileId);
+$message = find_any_file_message($fileId);
 
 if ($message === null || !isset($message['file']) || !is_array($message['file'])) {
     text_response('Файл не найден.', 404);

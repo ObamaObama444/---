@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 const MAX_HISTORY = 250;
+const MAX_COMMENTS_HISTORY = 2000;
 const MAX_MESSAGE_LENGTH = 1500;
 const MAX_FILE_SIZE = 26214400;
 
@@ -23,6 +24,10 @@ function ensure_storage_ready(): void
 
     if (!file_exists(messages_file())) {
         file_put_contents(messages_file(), "[]\n", LOCK_EX);
+    }
+
+    if (!file_exists(comments_file())) {
+        file_put_contents(comments_file(), "[]\n", LOCK_EX);
     }
 }
 
@@ -56,6 +61,11 @@ function uploads_path(string $suffix = ''): string
 function messages_file(): string
 {
     return storage_path('messages.json');
+}
+
+function comments_file(): string
+{
+    return storage_path('comments.json');
 }
 
 function json_response(array $payload, int $status = 200): void
@@ -102,52 +112,12 @@ function request_data(): array
 
 function read_messages(): array
 {
-    $handle = fopen(messages_file(), 'c+');
-
-    if ($handle === false) {
-        return [];
-    }
-
-    flock($handle, LOCK_SH);
-    rewind($handle);
-    $raw = stream_get_contents($handle);
-    flock($handle, LOCK_UN);
-    fclose($handle);
-
-    return normalize_messages(decoded_messages($raw));
+    return read_message_collection(messages_file());
 }
 
 function append_message(array $message): array
 {
-    $handle = fopen(messages_file(), 'c+');
-
-    if ($handle === false) {
-        throw new RuntimeException('Не удалось открыть хранилище сообщений.');
-    }
-
-    flock($handle, LOCK_EX);
-    rewind($handle);
-    $raw = stream_get_contents($handle);
-    $messages = normalize_messages(decoded_messages($raw));
-    $messages[] = $message;
-    $messages = array_values(array_slice($messages, -MAX_HISTORY));
-
-    $encoded = json_encode($messages, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-
-    if ($encoded === false) {
-        flock($handle, LOCK_UN);
-        fclose($handle);
-        throw new RuntimeException('Не удалось сериализовать сообщения.');
-    }
-
-    rewind($handle);
-    ftruncate($handle, 0);
-    fwrite($handle, $encoded . "\n");
-    fflush($handle);
-    flock($handle, LOCK_UN);
-    fclose($handle);
-
-    return $message;
+    return append_message_to_collection(messages_file(), $message, MAX_HISTORY);
 }
 
 function messages_after(?string $afterId): array
@@ -185,6 +155,64 @@ function find_file_message(string $fileId): ?array
     return null;
 }
 
+function read_comments(): array
+{
+    return read_message_collection(comments_file());
+}
+
+function append_comment(array $comment): array
+{
+    return append_message_to_collection(comments_file(), $comment, MAX_COMMENTS_HISTORY);
+}
+
+function comments_for_doc(string $docId, ?string $afterId = null): array
+{
+    $docId = clean_public_id($docId);
+
+    if ($docId === '') {
+        return [];
+    }
+
+    $comments = array_values(array_filter(read_comments(), static function ($comment) use ($docId): bool {
+        return is_array($comment) && ($comment['docId'] ?? '') === $docId;
+    }));
+
+    if ($afterId === null || $afterId === '') {
+        return $comments;
+    }
+
+    $matchIndex = null;
+
+    foreach ($comments as $index => $comment) {
+        if (($comment['id'] ?? '') === $afterId) {
+            $matchIndex = $index;
+            break;
+        }
+    }
+
+    if ($matchIndex === null) {
+        return $comments;
+    }
+
+    return array_values(array_slice($comments, $matchIndex + 1));
+}
+
+function find_comment_file_message(string $fileId): ?array
+{
+    foreach (read_comments() as $comment) {
+        if (($comment['file']['id'] ?? '') === $fileId) {
+            return $comment;
+        }
+    }
+
+    return null;
+}
+
+function find_any_file_message(string $fileId): ?array
+{
+    return find_file_message($fileId) ?? find_comment_file_message($fileId);
+}
+
 function decoded_messages($raw): array
 {
     if (!is_string($raw) || trim($raw) === '') {
@@ -194,6 +222,56 @@ function decoded_messages($raw): array
     $decoded = json_decode($raw, true);
 
     return is_array($decoded) ? $decoded : [];
+}
+
+function read_message_collection(string $path): array
+{
+    $handle = fopen($path, 'c+');
+
+    if ($handle === false) {
+        return [];
+    }
+
+    flock($handle, LOCK_SH);
+    rewind($handle);
+    $raw = stream_get_contents($handle);
+    flock($handle, LOCK_UN);
+    fclose($handle);
+
+    return normalize_messages(decoded_messages($raw));
+}
+
+function append_message_to_collection(string $path, array $message, int $limit): array
+{
+    $handle = fopen($path, 'c+');
+
+    if ($handle === false) {
+        throw new RuntimeException('Не удалось открыть хранилище сообщений.');
+    }
+
+    flock($handle, LOCK_EX);
+    rewind($handle);
+    $raw = stream_get_contents($handle);
+    $messages = normalize_messages(decoded_messages($raw));
+    $messages[] = $message;
+    $messages = array_values(array_slice($messages, -$limit));
+
+    $encoded = json_encode($messages, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+    if ($encoded === false) {
+        flock($handle, LOCK_UN);
+        fclose($handle);
+        throw new RuntimeException('Не удалось сериализовать сообщения.');
+    }
+
+    rewind($handle);
+    ftruncate($handle, 0);
+    fwrite($handle, $encoded . "\n");
+    fflush($handle);
+    flock($handle, LOCK_UN);
+    fclose($handle);
+
+    return $message;
 }
 
 function normalize_messages(array $messages): array
@@ -269,6 +347,32 @@ function create_file_message(string $profileId, string $nickname, array $fileMet
 {
     return [
         'id' => generate_id(),
+        'type' => 'file',
+        'author' => $nickname,
+        'profileId' => $profileId,
+        'createdAt' => gmdate('c'),
+        'file' => $fileMeta,
+    ];
+}
+
+function create_comment_text_message(string $docId, string $profileId, string $nickname, string $text): array
+{
+    return [
+        'id' => generate_id(),
+        'docId' => clean_public_id($docId),
+        'type' => 'text',
+        'author' => $nickname,
+        'profileId' => $profileId,
+        'text' => $text,
+        'createdAt' => gmdate('c'),
+    ];
+}
+
+function create_comment_file_message(string $docId, string $profileId, string $nickname, array $fileMeta): array
+{
+    return [
+        'id' => generate_id(),
+        'docId' => clean_public_id($docId),
         'type' => 'file',
         'author' => $nickname,
         'profileId' => $profileId,
