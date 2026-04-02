@@ -33,6 +33,13 @@ $appVersion = (string) @filemtime(__DIR__ . "/assets/app.js");
       aria-label="Открыть панель обсуждений"
       title="Открыть панель обсуждений"
     ></button>
+    <button
+      id="doc-forum-toggle"
+      class="doc-forum-toggle"
+      type="button"
+      aria-label="Открыть форум модуля"
+      title="Открыть форум модуля"
+    ></button>
 
     <div class="site-shell">
       <header class="masthead">
@@ -99,6 +106,27 @@ $appVersion = (string) @filemtime(__DIR__ . "/assets/app.js");
     </div>
 
     <div id="chat-backdrop" class="chat-backdrop" hidden></div>
+    <div id="doc-forum-backdrop" class="doc-forum-backdrop" hidden></div>
+
+    <aside id="doc-forum-panel" class="doc-forum-panel" aria-hidden="true">
+      <div class="doc-forum-panel__header">
+        <div>
+          <p id="doc-forum-module-label" class="eyebrow"></p>
+          <h2 id="doc-forum-title">Форум модуля</h2>
+        </div>
+        <button
+          id="doc-forum-close"
+          class="chat-close"
+          type="button"
+          aria-label="Закрыть форум"
+          title="Закрыть форум"
+        >
+          ×
+        </button>
+      </div>
+
+      <div id="doc-forum-root" class="doc-forum-panel__body"></div>
+    </aside>
 
     <aside id="chat-panel" class="chat-panel" aria-hidden="true">
       <div class="chat-panel__header">

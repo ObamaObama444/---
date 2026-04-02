@@ -3,6 +3,7 @@ const LIGHT_THEME = "light";
 const DARK_THEME = "dark";
 const DOC_FORUM_PROFILE_STORAGE_KEY = "open-room-profile-v1";
 const DOC_COMMENT_POLL_INTERVAL_MS = 2500;
+const DOC_FORUM_TOUCH_OPEN_DELAY_MS = 650;
 
 const rootNode = document.documentElement;
 const themeToggleNode = document.querySelector("#theme-toggle");
@@ -19,9 +20,19 @@ const readerUpdatedNode = document.querySelector("#reader-updated");
 const readerTitleNode = document.querySelector("#reader-title");
 const readerSummaryNode = document.querySelector("#reader-summary");
 const readerContentNode = document.querySelector("#reader-content");
+const docForumToggleNode = document.querySelector("#doc-forum-toggle");
+const docForumBackdropNode = document.querySelector("#doc-forum-backdrop");
+const docForumPanelNode = document.querySelector("#doc-forum-panel");
+const docForumCloseNode = document.querySelector("#doc-forum-close");
+const docForumRootNode = document.querySelector("#doc-forum-root");
+const docForumModuleLabelNode = document.querySelector("#doc-forum-module-label");
+const docForumTitleNode = document.querySelector("#doc-forum-title");
 
 let DOC_LIBRARY = [];
 const docCommentsState = createDocCommentsState();
+let isDocForumOpen = false;
+let isDocForumToggleHovered = false;
+let docForumTouchOpenTimerId = null;
 
 function initTheme() {
   const nextTheme = readStoredTheme();
@@ -87,6 +98,135 @@ function createDocCommentsState() {
     attachButtonNode: null,
     sendButtonNode: null,
   };
+}
+
+function initDocForumToggle() {
+  if (
+    !docForumToggleNode ||
+    !docForumPanelNode ||
+    !docForumBackdropNode ||
+    !docForumCloseNode ||
+    !docForumRootNode
+  ) {
+    return;
+  }
+
+  docForumToggleNode.addEventListener("click", (event) => {
+    event.preventDefault();
+  });
+
+  docForumToggleNode.addEventListener("pointerenter", () => {
+    isDocForumToggleHovered = true;
+
+    if (!isDocForumOpen) {
+      docForumToggleNode.focus({ preventScroll: true });
+    }
+  });
+
+  docForumToggleNode.addEventListener("pointerleave", () => {
+    isDocForumToggleHovered = false;
+
+    if (!isDocForumOpen && document.activeElement === docForumToggleNode) {
+      docForumToggleNode.blur();
+    }
+  });
+
+  docForumToggleNode.addEventListener("keydown", (event) => {
+    if (event.key !== " " && event.key !== "Spacebar") {
+      return;
+    }
+
+    if (!isDocForumToggleHovered || isDocForumOpen) {
+      event.preventDefault();
+      return;
+    }
+
+    event.preventDefault();
+    setDocForumOpen(true, { focusComposer: true });
+  });
+
+  docForumToggleNode.addEventListener("pointerdown", (event) => {
+    if (event.pointerType !== "touch") {
+      return;
+    }
+
+    clearDocForumTouchOpenTimer();
+    docForumTouchOpenTimerId = window.setTimeout(() => {
+      docForumTouchOpenTimerId = null;
+      setDocForumOpen(true, { focusComposer: true });
+    }, DOC_FORUM_TOUCH_OPEN_DELAY_MS);
+  });
+
+  docForumToggleNode.addEventListener("pointerup", clearDocForumTouchOpenTimer);
+  docForumToggleNode.addEventListener("pointercancel", clearDocForumTouchOpenTimer);
+  docForumToggleNode.addEventListener("pointermove", clearDocForumTouchOpenTimer);
+  docForumToggleNode.addEventListener("blur", () => {
+    isDocForumToggleHovered = false;
+    clearDocForumTouchOpenTimer();
+  });
+
+  docForumCloseNode.addEventListener("click", () => {
+    setDocForumOpen(false, { restoreToggleFocus: true });
+  });
+
+  docForumBackdropNode.addEventListener("click", () => {
+    setDocForumOpen(false, { restoreToggleFocus: true });
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && isDocForumOpen) {
+      setDocForumOpen(false, { restoreToggleFocus: true });
+    }
+  });
+
+  setDocForumOpen(false);
+}
+
+function setDocForumOpen(nextState, options = {}) {
+  if (!docForumPanelNode || !docForumBackdropNode || !docForumToggleNode) {
+    return;
+  }
+
+  const { focusComposer = false, restoreToggleFocus = false } = options;
+  isDocForumOpen = nextState;
+
+  docForumPanelNode.classList.toggle("is-open", nextState);
+  docForumPanelNode.setAttribute("aria-hidden", String(!nextState));
+  docForumBackdropNode.hidden = !nextState;
+  docForumToggleNode.setAttribute("aria-expanded", String(nextState));
+
+  if ("inert" in docForumPanelNode) {
+    docForumPanelNode.inert = !nextState;
+  }
+
+  if (!nextState) {
+    if (restoreToggleFocus) {
+      docForumToggleNode.focus({ preventScroll: true });
+    }
+
+    return;
+  }
+
+  if (docCommentsState.activeDocId) {
+    void docSyncComments(true);
+  }
+
+  requestAnimationFrame(() => {
+    docScrollCommentListToBottom();
+
+    if (focusComposer && docCommentsState.inputNode) {
+      docCommentsState.inputNode.focus();
+    }
+  });
+}
+
+function clearDocForumTouchOpenTimer() {
+  if (!docForumTouchOpenTimerId) {
+    return;
+  }
+
+  window.clearTimeout(docForumTouchOpenTimerId);
+  docForumTouchOpenTimerId = null;
 }
 
 function loadDocForumProfile() {
@@ -163,6 +303,7 @@ function initDocsLibrary() {
   docTotalCountNode.textContent = `${DOC_LIBRARY.length} docs`;
   categoryCountNode.textContent = `${docFormatNumber(categories.length - 1)} collections`;
   startDocCommentsPolling();
+  initDocForumToggle();
 
   docSearchNode.addEventListener("input", () => {
     state.query = docSearchNode.value.trim().toLowerCase();
@@ -358,7 +499,7 @@ function openDoc(doc, options = {}) {
     readerContentNode.append(renderDocSection(section));
   });
 
-  readerContentNode.append(renderDocCommentsSection(doc));
+  mountDocCommentsSection(doc);
   activateDocCommentsThread(doc.id);
 
   if (updateHash) {
@@ -573,6 +714,17 @@ function renderDocCommentsSection(doc) {
   return section;
 }
 
+function mountDocCommentsSection(doc) {
+  if (!docForumRootNode || !docForumModuleLabelNode || !docForumTitleNode) {
+    return;
+  }
+
+  docForumModuleLabelNode.textContent = `Module ${docFormatNumber(doc.number)}`;
+  docForumTitleNode.textContent = `Форум модуля ${docFormatNumber(doc.number)}`;
+  docForumRootNode.textContent = "";
+  docForumRootNode.append(renderDocCommentsSection(doc));
+}
+
 function activateDocCommentsThread(docId) {
   const isNewDoc = docCommentsState.activeDocId !== docId;
   docCommentsState.activeDocId = docId;
@@ -595,7 +747,7 @@ function startDocCommentsPolling() {
   }
 
   docCommentsState.pollTimerId = window.setInterval(() => {
-    if (!docCommentsState.activeDocId) {
+    if (!docCommentsState.activeDocId || !isDocForumOpen) {
       return;
     }
 
@@ -675,6 +827,16 @@ function docRenderCommentList() {
   docCommentsState.items.forEach((comment) => {
     docCommentsState.listNode.append(docRenderCommentItem(comment));
   });
+
+  docScrollCommentListToBottom();
+}
+
+function docScrollCommentListToBottom() {
+  if (!docCommentsState.listNode) {
+    return;
+  }
+
+  docCommentsState.listNode.scrollTop = docCommentsState.listNode.scrollHeight;
 }
 
 function docRenderCommentItem(comment) {
@@ -988,6 +1150,15 @@ function renderEmptyReader() {
   docCommentsState.activeDocId = "";
   docCommentsState.items = [];
   docCommentsState.lastId = "";
+  if (docForumRootNode) {
+    docForumRootNode.textContent = "";
+  }
+  if (docForumModuleLabelNode) {
+    docForumModuleLabelNode.textContent = "";
+  }
+  if (docForumTitleNode) {
+    docForumTitleNode.textContent = "Форум модуля";
+  }
   readerCategoryNode.textContent = "Library";
   readerLengthNode.textContent = "";
   readerUpdatedNode.textContent = "";
