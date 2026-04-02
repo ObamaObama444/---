@@ -32,7 +32,7 @@ if ($size <= 0) {
 }
 
 if ($size > MAX_FILE_SIZE) {
-    error_response(400, 'Файл слишком большой. Лимит 25 МБ.');
+    error_response(400, 'Файл слишком большой. Лимит 40 МБ.');
 }
 
 $profileId = clean_public_id($_POST['profileId'] ?? '') ?: generate_id();

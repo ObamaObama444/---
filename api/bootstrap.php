@@ -5,7 +5,7 @@ declare(strict_types=1);
 const MAX_HISTORY = 250;
 const MAX_COMMENTS_HISTORY = 2000;
 const MAX_MESSAGE_LENGTH = 1500;
-const MAX_FILE_SIZE = 26214400;
+const MAX_FILE_SIZE = 41943040;
 
 ensure_storage_ready();
 
@@ -419,7 +419,7 @@ function detect_mime_type(string $path, string $fallback = 'application/octet-st
 function upload_error_message(int $errorCode): string
 {
     if ($errorCode === UPLOAD_ERR_INI_SIZE || $errorCode === UPLOAD_ERR_FORM_SIZE) {
-        return 'Файл слишком большой. Лимит 25 МБ.';
+        return 'Файл слишком большой. Лимит 40 МБ.';
     }
 
     if ($errorCode === UPLOAD_ERR_NO_FILE) {
