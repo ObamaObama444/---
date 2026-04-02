@@ -707,6 +707,17 @@ function renderDocCommentsSection(doc) {
     docAutoResizeCommentInput();
   });
 
+  input.addEventListener("paste", (event) => {
+    const pastedFiles = docExtractFilesFromClipboard(event.clipboardData);
+
+    if (pastedFiles.length === 0) {
+      return;
+    }
+
+    event.preventDefault();
+    docQueueCommentFiles(pastedFiles);
+  });
+
   input.addEventListener("keydown", (event) => {
     if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
       event.preventDefault();
@@ -1111,6 +1122,95 @@ function docBuildInlineFileUrl(fileId) {
 
 function docBuildDownloadFileUrl(fileId) {
   return `/api/file.php?id=${encodeURIComponent(fileId)}&mode=download`;
+}
+
+function docExtractFilesFromClipboard(clipboardData) {
+  if (!clipboardData) {
+    return [];
+  }
+
+  const files = [];
+
+  if (clipboardData.items?.length) {
+    for (const item of clipboardData.items) {
+      if (item.kind !== "file") {
+        continue;
+      }
+
+      const file = item.getAsFile();
+
+      if (!file) {
+        continue;
+      }
+
+      files.push(docRenameClipboardFile(file));
+    }
+  }
+
+  if (files.length === 0 && clipboardData.files?.length) {
+    for (const file of clipboardData.files) {
+      if (!file) {
+        continue;
+      }
+
+      files.push(docRenameClipboardFile(file));
+    }
+  }
+
+  return files;
+}
+
+function docRenameClipboardFile(file) {
+  const nextName = docNormalizeClipboardFileName(file);
+
+  if (file.name === nextName || typeof File !== "function") {
+    return file;
+  }
+
+  return new File([file], nextName, {
+    type: file.type,
+    lastModified: Date.now(),
+  });
+}
+
+function docNormalizeClipboardFileName(file) {
+  const originalName = String(file.name || "").trim();
+  const extension = docGetExtensionFromMimeType(file.type);
+
+  if (originalName && originalName !== "image.png" && originalName !== "image.jpg") {
+    return originalName;
+  }
+
+  const prefix = String(file.type || "").startsWith("image/") ? "clipboard-image" : "clipboard-file";
+  return `${prefix}.${extension}`;
+}
+
+function docGetExtensionFromMimeType(mimeType) {
+  switch (mimeType) {
+    case "image/jpeg":
+      return "jpg";
+    case "image/gif":
+      return "gif";
+    case "image/webp":
+      return "webp";
+    case "image/svg+xml":
+      return "svg";
+    case "application/pdf":
+      return "pdf";
+    case "application/json":
+      return "json";
+    case "text/html":
+      return "html";
+    case "text/plain":
+      return "txt";
+    default:
+      if (typeof mimeType === "string" && mimeType.includes("/")) {
+        const fallback = mimeType.split("/").pop()?.toLowerCase() || "bin";
+        return fallback.replace(/[^a-z0-9]+/g, "") || "bin";
+      }
+
+      return "bin";
+  }
 }
 
 function docIsImageFile(file) {

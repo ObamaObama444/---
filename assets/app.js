@@ -1032,29 +1032,64 @@ function isTextAttachment(file) {
 }
 
 function extractFilesFromClipboard(clipboardData) {
-  if (!clipboardData?.items?.length) {
+  if (!clipboardData) {
     return [];
   }
 
   const files = [];
 
-  for (const item of clipboardData.items) {
-    if (item.kind !== "file") {
-      continue;
+  if (clipboardData.items?.length) {
+    for (const item of clipboardData.items) {
+      if (item.kind !== "file") {
+        continue;
+      }
+
+      const file = item.getAsFile();
+
+      if (!file) {
+        continue;
+      }
+
+      files.push(renameClipboardFile(file));
     }
+  }
 
-    const file = item.getAsFile();
+  if (files.length === 0 && clipboardData.files?.length) {
+    for (const file of clipboardData.files) {
+      if (!file) {
+        continue;
+      }
 
-    if (!file || !String(file.type || "").startsWith("image/")) {
-      continue;
+      files.push(renameClipboardFile(file));
     }
-
-    const extension = getExtensionFromMimeType(file.type);
-    const name = file.name && file.name !== "image.png" ? file.name : `clipboard-image.${extension}`;
-    files.push(new File([file], name, { type: file.type }));
   }
 
   return files;
+}
+
+function renameClipboardFile(file) {
+  const nextName = normalizeClipboardFileName(file);
+
+  if (file.name === nextName || typeof File !== "function") {
+    return file;
+  }
+
+  return new File([file], nextName, {
+    type: file.type,
+    lastModified: Date.now(),
+  });
+}
+
+function normalizeClipboardFileName(file) {
+  const originalName = String(file.name || "").trim();
+  const extension = getExtensionFromMimeType(file.type);
+
+  if (originalName && originalName !== "image.png" && originalName !== "image.jpg") {
+    return originalName;
+  }
+
+  const prefix = String(file.type || "").startsWith("image/") ? "clipboard-image" : "clipboard-file";
+  return `${prefix}.${extension}`;
 }
 
 function getExtensionFromMimeType(mimeType) {
@@ -1065,7 +1100,22 @@ function getExtensionFromMimeType(mimeType) {
       return "gif";
     case "image/webp":
       return "webp";
+    case "image/svg+xml":
+      return "svg";
+    case "application/pdf":
+      return "pdf";
+    case "application/json":
+      return "json";
+    case "text/html":
+      return "html";
+    case "text/plain":
+      return "txt";
     default:
-      return "png";
+      if (typeof mimeType === "string" && mimeType.includes("/")) {
+        const fallback = mimeType.split("/").pop()?.toLowerCase() || "bin";
+        return fallback.replace(/[^a-z0-9]+/g, "") || "bin";
+      }
+
+      return "bin";
   }
 }
