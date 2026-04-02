@@ -1,7 +1,7 @@
 const PROFILE_STORAGE_KEY = "open-room-profile-v1";
 const CHAT_MODE_STORAGE_KEY = "open-room-chat-mode-v1";
 const AI_THREAD_STORAGE_PREFIX = "open-room-ai-thread-v1:";
-const POLL_INTERVAL_MS = 2000;
+const POLL_INTERVAL_MS = 1200;
 const TOUCH_OPEN_DELAY_MS = 650;
 const AI_MODE = "ai";
 const ROOM_MODE = "room";
@@ -53,7 +53,9 @@ let aiThread = loadAiThread();
 let currentMode = loadChatMode();
 let dragDepth = 0;
 let isDraggingFiles = false;
-let isSubmitting = false;
+let isAiSubmitting = false;
+let isRoomMessageSubmitting = false;
+let activeRoomUploads = 0;
 let isChatOpen = false;
 let hasUnread = false;
 let isHydratingHistory = false;
@@ -597,8 +599,17 @@ function setComposerBusy(isBusy) {
   chatModeButton.disabled = isBusy;
 }
 
+function updateComposerAvailability() {
+  const isBusy = isAiSubmitting;
+  setComposerBusy(isBusy);
+}
+
 async function submitComposer() {
-  if (isSubmitting) {
+  if (currentMode === AI_MODE && isAiSubmitting) {
+    return;
+  }
+
+  if (currentMode === ROOM_MODE && isRoomMessageSubmitting) {
     return;
   }
 
@@ -608,30 +619,36 @@ async function submitComposer() {
     return;
   }
 
-  isSubmitting = true;
-  setComposerBusy(true);
-
   try {
     if (currentMode === AI_MODE) {
+      isAiSubmitting = true;
+      updateComposerAvailability();
       await submitAiMessage(text);
+      pendingFiles = [];
     } else {
+      isRoomMessageSubmitting = true;
       await submitRoomMessage(text);
     }
 
     messageInput.value = "";
-    pendingFiles = [];
     renderAttachmentStrip();
     autoResizeComposer();
     messageInput.focus();
   } catch (error) {
     window.alert(error.message || "Не удалось отправить сообщение.");
   } finally {
-    isSubmitting = false;
-    setComposerBusy(false);
+    isAiSubmitting = false;
+    isRoomMessageSubmitting = false;
+    updateComposerAvailability();
   }
 }
 
 async function submitRoomMessage(text) {
+  const filesToUpload = [...pendingFiles];
+
+  pendingFiles = [];
+  renderAttachmentStrip();
+
   if (text) {
     const payload = await requestJson("/api/messages.php", {
       method: "POST",
@@ -649,12 +666,8 @@ async function submitRoomMessage(text) {
     appendRoomMessage(payload.message);
   }
 
-  if (pendingFiles.length > 0) {
-    for (const file of pendingFiles) {
-      const message = await uploadRoomFile(file);
-      roomMessages = [...roomMessages, message].slice(-250);
-      appendRoomMessage(message);
-    }
+  if (filesToUpload.length > 0) {
+    void uploadRoomFilesInBackground(filesToUpload);
   }
 }
 
@@ -714,6 +727,31 @@ async function uploadRoomFile(file) {
   });
 
   return payload.message;
+}
+
+async function uploadRoomFilesInBackground(files) {
+  activeRoomUploads += files.length;
+
+  try {
+    for (const file of files) {
+      try {
+        const message = await uploadRoomFile(file);
+        roomMessages = [...roomMessages, message].slice(-250);
+
+        if (currentMode === ROOM_MODE) {
+          appendRoomMessage(message);
+        } else {
+          setUnread(true);
+        }
+      } catch (error) {
+        window.alert(error.message || `Не удалось загрузить файл ${file.name}.`);
+      } finally {
+        activeRoomUploads = Math.max(0, activeRoomUploads - 1);
+      }
+    }
+  } finally {
+    activeRoomUploads = Math.max(0, activeRoomUploads);
+  }
 }
 
 async function prepareAiAttachments(files) {
