@@ -21,12 +21,6 @@ const readerTitleNode = document.querySelector("#reader-title");
 const readerSummaryNode = document.querySelector("#reader-summary");
 const readerContentNode = document.querySelector("#reader-content");
 const docForumToggleNode = document.querySelector("#doc-forum-toggle");
-const docForumBackdropNode = document.querySelector("#doc-forum-backdrop");
-const docForumPanelNode = document.querySelector("#doc-forum-panel");
-const docForumCloseNode = document.querySelector("#doc-forum-close");
-const docForumRootNode = document.querySelector("#doc-forum-root");
-const docForumModuleLabelNode = document.querySelector("#doc-forum-module-label");
-const docForumTitleNode = document.querySelector("#doc-forum-title");
 
 let DOC_LIBRARY = [];
 const docCommentsState = createDocCommentsState();
@@ -97,17 +91,12 @@ function createDocCommentsState() {
     attachmentStripNode: null,
     attachButtonNode: null,
     sendButtonNode: null,
+    sectionNode: null,
   };
 }
 
 function initDocForumToggle() {
-  if (
-    !docForumToggleNode ||
-    !docForumPanelNode ||
-    !docForumBackdropNode ||
-    !docForumCloseNode ||
-    !docForumRootNode
-  ) {
+  if (!docForumToggleNode) {
     return;
   }
 
@@ -165,14 +154,6 @@ function initDocForumToggle() {
     clearDocForumTouchOpenTimer();
   });
 
-  docForumCloseNode.addEventListener("click", () => {
-    setDocForumOpen(false, { restoreToggleFocus: true });
-  });
-
-  docForumBackdropNode.addEventListener("click", () => {
-    setDocForumOpen(false, { restoreToggleFocus: true });
-  });
-
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && isDocForumOpen) {
       setDocForumOpen(false, { restoreToggleFocus: true });
@@ -183,20 +164,17 @@ function initDocForumToggle() {
 }
 
 function setDocForumOpen(nextState, options = {}) {
-  if (!docForumPanelNode || !docForumBackdropNode || !docForumToggleNode) {
+  if (!docForumToggleNode) {
     return;
   }
 
   const { focusComposer = false, restoreToggleFocus = false } = options;
   isDocForumOpen = nextState;
 
-  docForumPanelNode.classList.toggle("is-open", nextState);
-  docForumPanelNode.setAttribute("aria-hidden", String(!nextState));
-  docForumBackdropNode.hidden = !nextState;
   docForumToggleNode.setAttribute("aria-expanded", String(nextState));
 
-  if ("inert" in docForumPanelNode) {
-    docForumPanelNode.inert = !nextState;
+  if (docCommentsState.sectionNode) {
+    docCommentsState.sectionNode.classList.toggle("is-open", nextState);
   }
 
   if (!nextState) {
@@ -212,6 +190,12 @@ function setDocForumOpen(nextState, options = {}) {
   }
 
   requestAnimationFrame(() => {
+    if (docCommentsState.sectionNode) {
+      const top = window.scrollY + docCommentsState.sectionNode.getBoundingClientRect().top - 18;
+      const behavior = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches ? "auto" : "smooth";
+      window.scrollTo({ top: Math.max(0, top), behavior });
+    }
+
     docScrollCommentListToBottom();
 
     if (focusComposer && docCommentsState.inputNode) {
@@ -499,8 +483,9 @@ function openDoc(doc, options = {}) {
     readerContentNode.append(renderDocSection(section));
   });
 
-  mountDocCommentsSection(doc);
+  readerContentNode.append(renderDocCommentsSection(doc));
   activateDocCommentsThread(doc.id);
+  setDocForumOpen(isDocForumOpen);
 
   if (updateHash) {
     window.history.replaceState(null, "", `#${doc.id}`);
@@ -577,6 +562,10 @@ function renderDocCommentsSection(doc) {
   const section = document.createElement("section");
   section.className = "reader-comments";
 
+  if (isDocForumOpen) {
+    section.classList.add("is-open");
+  }
+
   const head = document.createElement("div");
   head.className = "reader-comments__head";
 
@@ -599,7 +588,21 @@ function renderDocCommentsSection(doc) {
   count.className = "reader-comments__count";
   count.textContent = "0 комментариев";
 
-  head.append(titleWrap, count);
+  const actions = document.createElement("div");
+  actions.className = "reader-comments__actions";
+
+  const collapseButton = document.createElement("button");
+  collapseButton.className = "reader-comments__collapse";
+  collapseButton.type = "button";
+  collapseButton.setAttribute("aria-label", "Свернуть форум модуля");
+  collapseButton.setAttribute("title", "Свернуть");
+  collapseButton.textContent = "×";
+  collapseButton.addEventListener("click", () => {
+    setDocForumOpen(false, { restoreToggleFocus: true });
+  });
+
+  actions.append(count, collapseButton);
+  head.append(titleWrap, actions);
 
   const list = document.createElement("div");
   list.className = "reader-comments__list";
@@ -681,6 +684,7 @@ function renderDocCommentsSection(doc) {
   docCommentsState.attachmentStripNode = attachmentStrip;
   docCommentsState.attachButtonNode = attachButton;
   docCommentsState.sendButtonNode = sendButton;
+  docCommentsState.sectionNode = section;
 
   attachButton.addEventListener("click", () => {
     fileInput.click();
@@ -712,17 +716,6 @@ function renderDocCommentsSection(doc) {
   docRenderCommentList();
 
   return section;
-}
-
-function mountDocCommentsSection(doc) {
-  if (!docForumRootNode || !docForumModuleLabelNode || !docForumTitleNode) {
-    return;
-  }
-
-  docForumModuleLabelNode.textContent = `Module ${docFormatNumber(doc.number)}`;
-  docForumTitleNode.textContent = `Форум модуля ${docFormatNumber(doc.number)}`;
-  docForumRootNode.textContent = "";
-  docForumRootNode.append(renderDocCommentsSection(doc));
 }
 
 function activateDocCommentsThread(docId) {
@@ -1150,15 +1143,7 @@ function renderEmptyReader() {
   docCommentsState.activeDocId = "";
   docCommentsState.items = [];
   docCommentsState.lastId = "";
-  if (docForumRootNode) {
-    docForumRootNode.textContent = "";
-  }
-  if (docForumModuleLabelNode) {
-    docForumModuleLabelNode.textContent = "";
-  }
-  if (docForumTitleNode) {
-    docForumTitleNode.textContent = "Форум модуля";
-  }
+  docCommentsState.sectionNode = null;
   readerCategoryNode.textContent = "Library";
   readerLengthNode.textContent = "";
   readerUpdatedNode.textContent = "";
