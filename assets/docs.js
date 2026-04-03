@@ -287,6 +287,10 @@ function docFormatNumber(value) {
   return String(value).padStart(2, "0");
 }
 
+function docDisplayNumber(doc) {
+  return doc.displayNumber ?? doc.number ?? 0;
+}
+
 function initDocsLibrary() {
   const state = {
     query: "",
@@ -324,26 +328,33 @@ function initDocsLibrary() {
 
   function syncVisibleState() {
     const filteredDocs = filterDocs(state);
-    visibleDocCountNode.textContent = `${filteredDocs.length} visible`;
+    const visibleDocs = filteredDocs.map((doc, index) => ({
+      ...doc,
+      displayNumber: index + 1,
+    }));
 
-    if (!filteredDocs.length) {
+    visibleDocCountNode.textContent = `${visibleDocs.length} visible`;
+
+    if (!visibleDocs.length) {
       renderDocList([], state, () => {});
       renderEmptyReader();
       return;
     }
 
-    if (!filteredDocs.some((doc) => doc.id === state.activeDocId)) {
-      state.activeDocId = filteredDocs[0].id;
+    if (!visibleDocs.some((doc) => doc.id === state.activeDocId)) {
+      state.activeDocId = visibleDocs[0].id;
     }
 
     const handleSelect = (docId) => {
       state.activeDocId = docId;
-      renderDocList(filteredDocs, state, handleSelect);
-      openDoc(findDocById(docId), { shouldScroll: true });
+      renderDocList(visibleDocs, state, handleSelect);
+      openDoc(visibleDocs.find((doc) => doc.id === docId) || findDocById(docId), { shouldScroll: true });
     };
 
-    renderDocList(filteredDocs, state, handleSelect);
-    openDoc(findDocById(state.activeDocId), { updateHash: false });
+    renderDocList(visibleDocs, state, handleSelect);
+    openDoc(visibleDocs.find((doc) => doc.id === state.activeDocId) || findDocById(state.activeDocId), {
+      updateHash: false,
+    });
   }
 }
 
@@ -442,7 +453,7 @@ function renderDocList(docs, state, onSelect) {
 
       const number = document.createElement("span");
       number.className = "doc-item__number";
-      number.textContent = docFormatNumber(doc.number);
+      number.textContent = docFormatNumber(docDisplayNumber(doc));
 
       const name = document.createElement("h3");
       name.textContent = doc.title;
@@ -484,7 +495,7 @@ function openDoc(doc, options = {}) {
   readerCategoryNode.textContent = doc.category;
   readerLengthNode.textContent = doc.readTime;
   readerUpdatedNode.textContent = doc.updated;
-  readerTitleNode.textContent = `${docFormatNumber(doc.number)}. ${doc.title}`;
+  readerTitleNode.textContent = `${docFormatNumber(docDisplayNumber(doc))}. ${doc.title}`;
   readerSummaryNode.textContent = doc.summary;
 
   readerContentNode.textContent = "";
@@ -3074,7 +3085,520 @@ curl http://127.0.0.1:8000/api/health`,
   },
 ];
 
-DOC_LIBRARY = DOC_CONFIGS.map((config, index) => ({
+const EXTRA_DOC_CONFIGS = [
+  {
+    id: "pytest-patterns",
+    category: "Python",
+    title: "Pytest Patterns",
+    readTime: "14 min",
+    updated: "rev 2026.04",
+    summary: "Рабочая памятка по test layout, fixtures, parametrization и устойчивым тестам без флака.",
+    tags: ["pytest", "testing", "fixtures", "python"],
+    overview: [
+      "Pytest хорошо работает не потому, что у него короткий синтаксис, а потому что он позволяет описывать тестовую среду через fixtures и собирать понятные сценарии без лишнего ceremony. Как только проект растет, главное — это не количество тестов, а их читаемость и предсказуемость.",
+      "Надежный pytest-набор обычно строится вокруг трех вещей: изоляция состояния, короткие сценарии и минимальное количество скрытой магии. Если каждый тест можно объяснить одной фразой, его потом легко поддерживать.",
+    ],
+    keyPoints: [
+      "fixture должна описывать зависимость, а не прятать половину сценария",
+      "parametrize полезен для матриц случаев, но не должен превращать тест в таблицу без смысла",
+      "factory fixtures удобнее длинных цепочек setup-кода внутри теста",
+      "монкипатч и мок лучше использовать на границах интеграции, а не везде подряд",
+      "названия тестов должны объяснять поведение, а не просто вызывать функцию",
+    ],
+    workflowIntro: [
+      "Обычный путь такой: выдели поведение → подготовь данные через fixtures → проверь один ожидаемый результат → отдельно покрой edge-cases.",
+    ],
+    workflow: [
+      "сначала определи happy path и только потом добивай ошибки",
+      "держи тестовые данные рядом с тестом, если они локальны для сценария",
+      "если fixture стала слишком умной, разбей ее на два уровня",
+      "используй pytest -k и pytest -q для короткого цикла обратной связи",
+    ],
+    pitfalls: [
+      "глобальные autouse fixtures быстро делают тесты неочевидными",
+      "слишком широкие mocks прячут реальную поломку интеграции",
+      "assert по десятку полей в одном тесте усложняет диагностику",
+      "зависимость тестов от порядка запуска ломает доверие ко всему набору",
+    ],
+    referenceIntro: [
+      "Минимальный пример с fixture и параметризацией.",
+    ],
+    example: `import pytest
+
+@pytest.fixture
+def numbers():
+    return [1, 2, 3]
+
+@pytest.mark.parametrize("factor, expected", [(2, [2, 4, 6]), (3, [3, 6, 9])])
+def test_scale(numbers, factor, expected):
+    assert [value * factor for value in numbers] == expected`,
+    checklist: [
+      "можно ли понять сценарий, не открывая три соседних fixture",
+      "есть ли отдельные тесты на ошибки и граничные значения",
+      "убирается ли флак повторным запуском",
+      "понятно ли, какая проверка упадет первой и почему",
+    ],
+  },
+  {
+    id: "sqlalchemy-patterns",
+    category: "Python",
+    title: "SQLAlchemy Patterns",
+    readTime: "15 min",
+    updated: "rev 2026.04",
+    summary: "Практика по Core, ORM, session lifecycle и предсказуемой работе с транзакциями.",
+    tags: ["sqlalchemy", "orm", "sql", "transactions"],
+    overview: [
+      "SQLAlchemy полезен, когда нужно держать под контролем и SQL, и Python-модель предметной области. Его главная сила — не в том, что он прячет SQL, а в том, что он дает безопасные слои абстракции, которые можно включать по мере необходимости.",
+      "На практике самые дорогие ошибки здесь связаны не с синтаксисом ORM, а с временем жизни session, неожиданными lazy-load и неявными транзакциями. Поэтому лучше с самого начала держать политику доступа к базе простой и явной.",
+    ],
+    keyPoints: [
+      "session должна жить коротко и по понятной границе запроса или задачи",
+      "Core полезен там, где нужен прозрачный SQL и batch-операции",
+      "ORM удобен для доменных сущностей, но требует контроля загрузки связей",
+      "commit лучше делать в прикладном слое, а не внутри случайных helper-функций",
+      "selectinload и joinedload нужно выбирать осознанно по форме данных",
+    ],
+    workflowIntro: [
+      "Нормальный контур: создать engine → описать session factory → определить модели → выполнять короткие транзакции с явной границей commit/rollback.",
+    ],
+    workflow: [
+      "для чтения сложных витрин сначала выпиши SQL-форму запроса",
+      "если операция массовая, проверь, не проще ли ее написать через Core",
+      "в сервисном коде храни session как зависимость, а не как глобал",
+      "перед lazy-loading в цикле посмотри, не получился ли N+1",
+    ],
+    pitfalls: [
+      "общая session на весь процесс приводит к трудноуловимым багам",
+      "неявный autoflush может менять порядок запросов и удивлять",
+      "долгие транзакции создают лишние блокировки",
+      "ORM-магия без понимания generated SQL бьет по производительности",
+    ],
+    referenceIntro: [
+      "Короткий паттерн для session scope.",
+    ],
+    example: `from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+def load_user_with_orders(session: Session, user_id: int):
+    stmt = select(User).where(User.id == user_id)
+    return session.execute(stmt).scalar_one()`,
+    checklist: [
+      "ясно ли, где открывается и закрывается session",
+      "видно ли, какие запросы реально улетают в базу",
+      "не прячется ли commit слишком глубоко в helper-коде",
+      "проверен ли сценарий rollback при ошибке",
+    ],
+  },
+  {
+    id: "numerical-methods-primer",
+    category: "Mathematics",
+    title: "Numerical Methods Primer",
+    readTime: "17 min",
+    updated: "rev 2026.04",
+    summary: "Базовые приемы численных методов: устойчивость, ошибки округления, итерации и критерии остановки.",
+    tags: ["numerical", "math", "stability", "iterations"],
+    overview: [
+      "Численные методы нужны там, где точная формула либо неудобна, либо не существует в практической форме. Но цена за это — ошибки аппроксимации, накопление округления и зависимость результата от критерия остановки.",
+      "В реальной работе полезно не только знать конкретный алгоритм, но и понимать, насколько чувствителен ответ к начальному приближению, масштабу величин и точности представления чисел.",
+    ],
+    keyPoints: [
+      "кондиционирование задачи и устойчивость алгоритма — не одно и то же",
+      "маленькая невязка не всегда означает маленькую ошибку решения",
+      "критерий остановки должен быть связан со смыслом задачи, а не просто с числом итераций",
+      "масштабирование переменных часто улучшает поведение метода",
+      "численные схемы надо проверять на простых задачах с известным ответом",
+    ],
+    workflowIntro: [
+      "Практика обычно такая: выбери метод → задай масштаб и точность → определи stopping rule → проверь ответ на контрольном примере.",
+    ],
+    workflow: [
+      "сначала оцени диапазон величин и чувствительность входа",
+      "используй контрольные задачи с аналитическим ответом",
+      "логируй норму остатка и изменение решения по итерациям",
+      "сравни решение минимум на двух значениях шага или tolerance",
+    ],
+    pitfalls: [
+      "фиксированное число итераций без контроля качества ответа",
+      "игнорирование ошибок округления на плохо масштабированных данных",
+      "применение метода вне области его устойчивости",
+      "подмена ошибки модели ошибкой вычисления",
+    ],
+    referenceIntro: [
+      "Небольшой пример простого fixed-point iteration.",
+    ],
+    example: `x = 0.5
+for _ in range(20):
+    x_next = (x + 2 / x) / 2
+    if abs(x_next - x) < 1e-8:
+        break
+    x = x_next
+print(x)`,
+    checklist: [
+      "понятно ли, что считается ошибкой в этой задаче",
+      "есть ли у метода разумный критерий остановки",
+      "проверена ли чувствительность к начальному приближению",
+      "можно ли объяснить источник основной численной ошибки",
+    ],
+  },
+  {
+    id: "optimization-handbook",
+    category: "Mathematics",
+    title: "Optimization Handbook",
+    readTime: "16 min",
+    updated: "rev 2026.04",
+    summary: "Градиентные методы, ограничения, convex intuition и практические вопросы постановки оптимизационной задачи.",
+    tags: ["optimization", "gradients", "convex", "math"],
+    overview: [
+      "Оптимизация — это не только выбор алгоритма, но и качественная постановка задачи: переменные, ограничения, масштаб, целевая функция и то, насколько эта функция соответствует реальной цели. Плохая постановка ломает даже хороший solver.",
+      "В инженерной практике часто важнее понять форму ландшафта и ограничения, чем механически запускать очередной метод из библиотеки. Особенно это заметно в задачах с шумными функциями или плохо обусловленными параметрами.",
+    ],
+    keyPoints: [
+      "масштаб признаков и параметров напрямую влияет на скорость сходимости",
+      "ограничения лучше моделировать явно, а не надеяться на штрафы по умолчанию",
+      "convex intuition полезна даже в неконвексных задачах как способ читать ландшафт",
+      "градиент без интерпретации масштаба редко помогает сам по себе",
+      "важно различать локальное улучшение и приемлемость решения для бизнеса",
+    ],
+    workflowIntro: [
+      "Полезный контур: сформулируй objective → выдели ограничения → нормализуй масштабы → выбери solver → проверь чувствительность результата.",
+    ],
+    workflow: [
+      "перед solver выпиши objective словами, а потом формулой",
+      "отдели hard constraints от soft preferences",
+      "оцени, есть ли аналитический baseline хотя бы для упрощенной задачи",
+      "сравни несколько стартовых точек, если задача неконвексная",
+    ],
+    pitfalls: [
+      "оптимизация суррогатной метрики, не связанной с реальной целью",
+      "игнорирование ограничений приводит к красивому, но бесполезному решению",
+      "плохое масштабирование переменных делает solver нестабильным",
+      "слишком ранняя вера в первый локальный минимум",
+    ],
+    referenceIntro: [
+      "Минимальный пример градиентного шага для квадратичной функции.",
+    ],
+    example: `def grad(x):
+    return 2 * (x - 3)
+
+x = 0.0
+lr = 0.1
+for _ in range(50):
+    x = x - lr * grad(x)
+print(x)`,
+    checklist: [
+      "ясно ли, что именно минимизируется и почему",
+      "явно ли описаны ограничения",
+      "проверена ли чувствительность к масштабу переменных",
+      "сравнивалось ли решение с простым baseline",
+    ],
+  },
+  {
+    id: "sklearn-linear-models",
+    category: "Data & ML",
+    title: "Scikit-Learn Linear Models",
+    readTime: "15 min",
+    updated: "rev 2026.04",
+    summary: "Линейные и логистические модели, regularization и базовый ML pipeline без лишней магии.",
+    tags: ["sklearn", "linear-models", "ml", "regularization"],
+    overview: [
+      "Linear models в scikit-learn полезны как baseline, как инструмент интерпретации и как очень практичный production-кандидат, когда данных не так много, а требования к прозрачности высокие. Их часто недооценивают из-за простоты интерфейса.",
+      "На практике главное — это не вызов fit, а подготовка признаков, корректная валидация и понимание того, что регуляризация меняет не только коэффициенты, но и стабильность модели.",
+    ],
+    keyPoints: [
+      "baseline на линейной модели почти всегда стоит строить первым",
+      "standardization важна для регуляризованных моделей",
+      "коэффициенты читаемы только при понятном feature space",
+      "ROC-AUC и logloss часто информативнее accuracy",
+      "pipeline помогает не потерять preprocessing между train и inference",
+    ],
+    workflowIntro: [
+      "Обычный контур: train/valid split → preprocessing → pipeline → fit → метрики → анализ коэффициентов и ошибок.",
+    ],
+    workflow: [
+      "не обучай модель без контрольного baseline",
+      "масштабируй числовые признаки перед L1/L2-регуляризацией",
+      "смотри распределение ошибок по сегментам, а не только общую метрику",
+      "храни preprocessing вместе с моделью в одном pipeline",
+    ],
+    pitfalls: [
+      "сравнение метрик без одинакового разбиения данных",
+      "интерпретация коэффициентов после агрессивного one-hot без контекста",
+      "утечка через preprocessing до split",
+      "выводы по accuracy на дисбалансных данных",
+    ],
+    referenceIntro: [
+      "Минимальный pipeline для логистической регрессии.",
+    ],
+    example: `from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
+from sklearn.linear_model import LogisticRegression
+
+model = Pipeline([
+    ("scaler", StandardScaler()),
+    ("clf", LogisticRegression(max_iter=1000)),
+])`,
+    checklist: [
+      "есть ли baseline перед более сложной моделью",
+      "отдельно ли сделан preprocessing внутри pipeline",
+      "смотрел ли ты сегменты ошибок, а не только одну метрику",
+      "понятно ли, как регуляризация влияет на коэффициенты",
+    ],
+  },
+  {
+    id: "ml-serving-notes",
+    category: "Data & ML",
+    title: "ML Serving Notes",
+    readTime: "16 min",
+    updated: "rev 2026.04",
+    summary: "Как выкладывать модели: contract, latency budget, feature parity и безопасный rollout.",
+    tags: ["ml-serving", "inference", "latency", "deployment"],
+    overview: [
+      "Serving модели — это уже не исследовательская задача, а инженерный контракт. Нужно понимать формат входа, допустимую задержку, версионирование модели и то, совпадают ли признаки на inference с тем, что было на train.",
+      "Самые частые инциденты происходят не из-за самой модели, а из-за несовпадения feature pipeline, тихих null и отсутствия мониторинга распределений входов после деплоя.",
+    ],
+    keyPoints: [
+      "inference contract должен быть версионирован и формализован",
+      "feature parity между train и serve — критический риск",
+      "latency budget должен быть известен до выбора архитектуры",
+      "fallback и деградационный режим лучше продумать заранее",
+      "онлайн-метрики нужны отдельно от offline validation",
+    ],
+    workflowIntro: [
+      "Полезный порядок: описать contract → собрать inference pipeline → обернуть healthchecks → rollout через shadow/canary → мониторить drift и latency.",
+    ],
+    workflow: [
+      "зафиксируй schema входа и выходов",
+      "добавь модельный version id в ответ и логи",
+      "отдельно померь preprocessing latency и model latency",
+      "для релиза используй shadow или canary, если это возможно",
+    ],
+    pitfalls: [
+      "serving-пайплайн отличается от train-кода",
+      "латентность меряется только на локалке, а не на реальном окружении",
+      "нет graceful fallback при ошибке модели",
+      "нет мониторинга распределений признаков после выкладки",
+    ],
+    referenceIntro: [
+      "Минимальный каркас ответа inference endpoint.",
+    ],
+    example: `{
+  "model_version": "2026-04-01-linear-v3",
+  "prediction": 0.842,
+  "latency_ms": 17
+}`,
+    checklist: [
+      "совпадает ли feature pipeline между train и serve",
+      "известен ли latency budget",
+      "есть ли fallback при деградации сервиса модели",
+      "логируется ли версия модели в ответах и инцидентах",
+    ],
+  },
+  {
+    id: "systemd-process-ops",
+    category: "Infrastructure",
+    title: "systemd and Process Ops",
+    readTime: "14 min",
+    updated: "rev 2026.04",
+    summary: "Управление процессами, юнитами, логами и автозапуском сервисов на Linux.",
+    tags: ["systemd", "linux", "services", "ops"],
+    overview: [
+      "systemd — это не просто способ запускать процесс после перезагрузки. Это точка контроля за жизненным циклом сервиса: restart policy, env, зависимости, логи и диагностика состояния. Если приложение живет дольше одной команды в shell, лучше описать его как сервис.",
+      "В практической эксплуатации важно не только стартовать юнит, но и быстро отвечать на вопросы: почему сервис упал, что у него в окружении, какие последние логи и как он ведет себя после reboot.",
+    ],
+    keyPoints: [
+      "unit file должен явно описывать WorkingDirectory и ExecStart",
+      "Restart=on-failure часто лучше ручных перезапусков",
+      "journalctl — первый инструмент диагностики, а не последний",
+      "env и права пользователя сервиса надо фиксировать явно",
+      "health endpoint упрощает проверку после рестарта",
+    ],
+    workflowIntro: [
+      "Нормальный путь: написать unit → daemon-reload → start → status → journalctl → enable для автозапуска.",
+    ],
+    workflow: [
+      "определи, под каким пользователем должен жить сервис",
+      "убедись, что пути в unit абсолютные",
+      "после правки делай daemon-reload",
+      "после старта проверяй и status, и локальный health endpoint",
+    ],
+    pitfalls: [
+      "относительные пути в ExecStart ломают юнит после reboot",
+      "нет restart policy и процесс умирает молча",
+      "логи смотрят не там, где реально пишет systemd",
+      "сервис запускается от неподходящего пользователя без прав на файлы",
+    ],
+    referenceIntro: [
+      "Короткий skeleton для сервиса приложения.",
+    ],
+    example: `[Unit]
+Description=Reference Library
+After=network.target
+
+[Service]
+WorkingDirectory=/srv/app
+ExecStart=/usr/bin/php -S 127.0.0.1:8080
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target`,
+    checklist: [
+      "явно ли указан пользователь и рабочая директория",
+      "есть ли restart policy",
+      "понятно ли, где смотреть логи через journalctl",
+      "есть ли healthcheck после старта",
+    ],
+  },
+  {
+    id: "ssh-key-management",
+    category: "Infrastructure",
+    title: "SSH Key Management",
+    readTime: "13 min",
+    updated: "rev 2026.04",
+    summary: "Ключи, known_hosts, config aliases и безопасная ежедневная работа по SSH.",
+    tags: ["ssh", "keys", "security", "ops"],
+    overview: [
+      "SSH становится удобным только после того, как ты один раз нормально настроил ключи и aliases. Иначе каждая сессия превращается в ручной ввод логина, host и бесконечные вопросы про пароли и known_hosts.",
+      "При этом удобство не должно ломать безопасность. Важно понимать, что именно хранится в private key, как работает trusted host fingerprint и чем отличается password auth от ключевой схемы.",
+    ],
+    keyPoints: [
+      "ключи удобнее и безопаснее постоянного password auth",
+      "known_hosts защищает от подмены сервера",
+      "ssh config убирает рутину и снижает шанс ошибки в hostname",
+      "отдельные ключи для разных задач упрощают ротацию",
+      "приватный ключ никогда не должен уходить в репозиторий или чат",
+    ],
+    workflowIntro: [
+      "Повседневный контур: сгенерировать ключ → добавить публичную часть на сервер → завести alias в ~/.ssh/config → подключаться короткой командой.",
+    ],
+    workflow: [
+      "генерируй ed25519 ключи с понятным комментарием",
+      "держи права на ~/.ssh достаточно строгими",
+      "используй aliases в config для серверов, где работаешь часто",
+      "при смене fingerprint не игнорируй предупреждение blindly",
+    ],
+    pitfalls: [
+      "копирование приватного ключа между машинами без контроля",
+      "отключение host key checking ради удобства",
+      "общий один ключ на все серверы и команды",
+      "забытый passphrase на рабочих ключах",
+    ],
+    referenceIntro: [
+      "Минимальный alias для частого сервера.",
+    ],
+    example: `Host reg-docs
+  HostName server128.hosting.reg.ru
+  User u3469444
+  Port 22`,
+    checklist: [
+      "есть ли отдельный ключ под рабочий сервер",
+      "сохранен ли alias в ~/.ssh/config",
+      "понимаешь ли ты, почему появился запрос на host fingerprint",
+      "не отключены ли проверки безопасности ради скорости",
+    ],
+  },
+  {
+    id: "sql-window-functions",
+    category: "Workflow",
+    title: "SQL Window Functions",
+    readTime: "16 min",
+    updated: "rev 2026.04",
+    summary: "Row_number, lag, lead, running totals и аналитические окна для отчетов и витрин.",
+    tags: ["sql", "window-functions", "analytics", "workflow"],
+    overview: [
+      "Window functions нужны там, где простой group by уже не хватает: ранжирование внутри сегмента, соседние значения, кумулятивные суммы, first/last event. Это один из самых практичных инструментов SQL для аналитики и продуктовых задач.",
+      "Главная интуиция здесь в том, что окно не схлопывает таблицу. Ты сохраняешь строки и поверх них считаешь аналитическую функцию в пределах partition и order.",
+    ],
+    keyPoints: [
+      "partition by задает группу, order by — порядок внутри нее",
+      "row_number и rank отвечают на разные вопросы при tie",
+      "lag и lead удобны для сравнений соседних событий",
+      "running total требует явного порядка",
+      "оконные функции часто убирают необходимость в self join",
+    ],
+    workflowIntro: [
+      "Типовой путь: определи grain строки → выбери partition → добавь order → проверь, что окно считает именно в нужном направлении.",
+    ],
+    workflow: [
+      "сначала зафиксируй, что является одной строкой результата",
+      "не пиши window, пока не понял partition и order словами",
+      "проверяй результат на одном маленьком пользователе или группе",
+      "если метрика кумулятивная, смотри на поведение при дубликатах времени",
+    ],
+    pitfalls: [
+      "окно без order для операций, где порядок критичен",
+      "неожиданные дубликаты времени ломают rank и running sums",
+      "путаница между rank и row_number",
+      "использование self join там, где окно проще и быстрее читается",
+    ],
+    referenceIntro: [
+      "Короткий пример с ранжированием и предыдущим значением.",
+    ],
+    example: `select
+  user_id,
+  created_at,
+  amount,
+  row_number() over (partition by user_id order by created_at) as rn,
+  lag(amount) over (partition by user_id order by created_at) as prev_amount
+from payments;`,
+    checklist: [
+      "определен ли grain итоговой строки",
+      "понятно ли, что такое partition и order в этой задаче",
+      "проверен ли результат на маленьком ручном примере",
+      "точно ли окно лучше обычного group by или join",
+    ],
+  },
+  {
+    id: "bash-make-automation",
+    category: "Workflow",
+    title: "Bash and Make Automation",
+    readTime: "14 min",
+    updated: "rev 2026.04",
+    summary: "Небольшая автоматизация через bash и Makefile без преждевременного ухода в тяжелый orchestration.",
+    tags: ["bash", "make", "automation", "workflow"],
+    overview: [
+      "Во многих небольших проектах хватает bash-скриптов и Makefile, чтобы стандартизовать рутину: запуск, деплой, проверка логов, сборка, очистка временных файлов. Это часто лучше, чем сразу тянуть тяжелые платформы автоматизации.",
+      "Главное правило — скрипты должны быть короткими, идемпотентными и понятными. Если через месяц ты не можешь прочитать свой deploy.sh, значит он уже слишком умный.",
+    ],
+    keyPoints: [
+      "Makefile хорош как витрина часто используемых команд",
+      "bash-скрипты должны падать рано через set -euo pipefail",
+      "переменные окружения надо валидировать явно",
+      "одна команда — один ясный outcome",
+      "автоматизация должна уменьшать ручные ошибки, а не прятать критичные шаги",
+    ],
+    workflowIntro: [
+      "Обычно достаточно завести make targets для install, test, deploy и reset, а тяжелую логику вынести в короткие shell-скрипты.",
+    ],
+    workflow: [
+      "сначала опиши рутину как список ручных шагов",
+      "вынеси повторяемые команды в make target",
+      "для destructive действий добавляй явные проверки директории и условий",
+      "не прячь опасные удаления за нейтральными именами таргетов",
+    ],
+    pitfalls: [
+      "длинные bash-портянки без проверок ошибок",
+      "магические пути и env-переменные без валидации",
+      "Makefile, который непонятно читать без похода в пять скриптов",
+      "автоматизация, требующая больше ручных пояснений, чем ручной запуск",
+    ],
+    referenceIntro: [
+      "Минимальная связка make + bash для деплоя.",
+    ],
+    example: `deploy:
+\tbash scripts/deploy.sh
+
+logs:
+\ttail -n 100 storage/messages.json`,
+    checklist: [
+      "понятно ли, что делает каждый target",
+      "есть ли защита от запуска destructive команды не в той директории",
+      "валидируются ли env-переменные перед выполнением",
+      "можно ли объяснить автоматизацию без открытия десятка файлов",
+    ],
+  },
+];
+
+DOC_LIBRARY = [...DOC_CONFIGS, ...EXTRA_DOC_CONFIGS].map((config, index) => ({
   ...buildDoc(config),
   number: index + 1,
 }));
