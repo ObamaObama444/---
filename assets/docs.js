@@ -1068,22 +1068,7 @@ function bindDocTransferLink(link, { action, name, url }) {
       link.textContent = initialLabel;
       settleDocTransfer(transferId, "done", 2200);
     }, DOC_FILE_TRANSFER_LOCK_MS);
-
-    if (action === "download") {
-      event.preventDefault();
-      docTriggerBrowserDownload(url, name);
-    }
   });
-}
-
-function docTriggerBrowserDownload(url, fileName) {
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = fileName;
-  anchor.hidden = true;
-  document.body.append(anchor);
-  anchor.click();
-  anchor.remove();
 }
 
 function docSetCommentComposerBusy(isBusy) {

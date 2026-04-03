@@ -694,22 +694,7 @@ function bindTransferLink(link, { action, name, url }) {
       link.textContent = initialLabel;
       settleRoomTransfer(transferId, "done", 2200);
     }, FILE_TRANSFER_LOCK_MS);
-
-    if (action === "download") {
-      event.preventDefault();
-      triggerBrowserDownload(url, name);
-    }
   });
-}
-
-function triggerBrowserDownload(url, fileName) {
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = fileName;
-  anchor.hidden = true;
-  document.body.append(anchor);
-  anchor.click();
-  anchor.remove();
 }
 
 function setDropTarget(isActive) {
