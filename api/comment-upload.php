@@ -55,6 +55,7 @@ $fileMeta = [
 
 try {
     $comment = append_comment(create_comment_file_message($docId, $profileId, $nickname, $fileMeta));
+    store_file_meta($fileMeta);
 } catch (Throwable $error) {
     @unlink($target);
     error_response(500, 'Не удалось сохранить комментарий с файлом.');

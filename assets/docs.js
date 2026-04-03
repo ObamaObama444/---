@@ -4,6 +4,7 @@ const DARK_THEME = "dark";
 const DOC_FORUM_PROFILE_STORAGE_KEY = "open-room-profile-v1";
 const DOC_COMMENT_POLL_INTERVAL_MS = 2500;
 const DOC_FORUM_TOUCH_OPEN_DELAY_MS = 650;
+const DOC_FILE_TRANSFER_LOCK_MS = 6000;
 
 const rootNode = document.documentElement;
 const themeToggleNode = document.querySelector("#theme-toggle");
@@ -89,9 +90,11 @@ function createDocCommentsState() {
     inputNode: null,
     fileInputNode: null,
     attachmentStripNode: null,
+    transferStripNode: null,
     attachButtonNode: null,
     sendButtonNode: null,
     sectionNode: null,
+    transfers: [],
   };
 }
 
@@ -577,20 +580,8 @@ function renderDocCommentsSection(doc) {
   const head = document.createElement("div");
   head.className = "reader-comments__head";
 
-  const titleWrap = document.createElement("div");
-
-  const eyebrow = document.createElement("p");
-  eyebrow.className = "eyebrow";
-  eyebrow.textContent = `Module ${docFormatNumber(doc.number)}`;
-
-  const title = document.createElement("h3");
-  title.textContent = "Комментарии";
-
-  const hint = document.createElement("p");
-  hint.className = "reader-comments__hint";
-  hint.textContent = "Гости могут отправлять сюда текст и файлы по этому модулю.";
-
-  titleWrap.append(eyebrow, title, hint);
+  const spacer = document.createElement("div");
+  spacer.className = "reader-comments__spacer";
 
   const count = document.createElement("span");
   count.className = "reader-comments__count";
@@ -610,7 +601,7 @@ function renderDocCommentsSection(doc) {
   });
 
   actions.append(count, collapseButton);
-  head.append(titleWrap, actions);
+  head.append(spacer, actions);
 
   const list = document.createElement("div");
   list.className = "reader-comments__list";
@@ -626,6 +617,10 @@ function renderDocCommentsSection(doc) {
   const attachmentStrip = document.createElement("div");
   attachmentStrip.className = "attachment-strip";
   attachmentStrip.hidden = true;
+
+  const transferStrip = document.createElement("div");
+  transferStrip.className = "transfer-strip";
+  transferStrip.hidden = true;
 
   const row = document.createElement("div");
   row.className = "composer-row";
@@ -682,7 +677,7 @@ function renderDocCommentsSection(doc) {
     </svg>`;
 
   row.append(attachButton, messageBox, sendButton);
-  form.append(fileInput, attachmentStrip, row);
+  form.append(fileInput, attachmentStrip, transferStrip, row);
   section.append(head, list, form);
 
   docCommentsState.listNode = list;
@@ -690,6 +685,7 @@ function renderDocCommentsSection(doc) {
   docCommentsState.inputNode = input;
   docCommentsState.fileInputNode = fileInput;
   docCommentsState.attachmentStripNode = attachmentStrip;
+  docCommentsState.transferStripNode = transferStrip;
   docCommentsState.attachButtonNode = attachButton;
   docCommentsState.sendButtonNode = sendButton;
   docCommentsState.sectionNode = section;
@@ -732,6 +728,7 @@ function renderDocCommentsSection(doc) {
 
   docAutoResizeCommentInput();
   docRenderCommentAttachmentStrip();
+  docRenderCommentTransferStrip();
   docRenderCommentList();
 
   return section;
@@ -746,9 +743,11 @@ function activateDocCommentsThread(docId) {
     docCommentsState.items = [];
     docCommentsState.lastId = "";
     docCommentsState.pendingFiles = [];
+    docCommentsState.transfers = [];
   }
 
   docRenderCommentAttachmentStrip();
+  docRenderCommentTransferStrip();
   docRenderCommentList();
   void docSyncComments(true);
 }
@@ -933,6 +932,11 @@ function docRenderCommentItem(comment) {
     downloadLink.href = docBuildDownloadFileUrl(file.id);
     downloadLink.textContent = "Скачать";
     downloadLink.setAttribute("download", file.originalName);
+    bindDocTransferLink(downloadLink, {
+      action: "download",
+      name: file.originalName,
+      url: downloadLink.href,
+    });
     actions.append(downloadLink);
 
     fileBox.append(info, actions);
@@ -983,6 +987,121 @@ function docRenderCommentAttachmentStrip() {
     chip.append(name, remove);
     strip.append(chip);
   });
+}
+
+function startDocTransfer(action, name) {
+  const transfer = {
+    id: docGenerateProfileId(),
+    action,
+    name,
+    state: "pending",
+  };
+
+  docCommentsState.transfers = [...docCommentsState.transfers, transfer];
+  docRenderCommentTransferStrip();
+  return transfer.id;
+}
+
+function updateDocTransfer(transferId, patch) {
+  docCommentsState.transfers = docCommentsState.transfers.map((transfer) => {
+    if (transfer.id !== transferId) {
+      return transfer;
+    }
+
+    return { ...transfer, ...patch };
+  });
+
+  docRenderCommentTransferStrip();
+}
+
+function clearDocTransfer(transferId) {
+  docCommentsState.transfers = docCommentsState.transfers.filter((transfer) => transfer.id !== transferId);
+  docRenderCommentTransferStrip();
+}
+
+function settleDocTransfer(transferId, state, delayMs = 1800) {
+  updateDocTransfer(transferId, { state });
+  window.setTimeout(() => {
+    clearDocTransfer(transferId);
+  }, delayMs);
+}
+
+function describeDocTransfer(transfer) {
+  if (transfer.action === "download") {
+    if (transfer.state === "pending") {
+      return `Скачивание: ${transfer.name} — стартуем`;
+    }
+
+    if (transfer.state === "error") {
+      return `Скачивание: ${transfer.name} — ошибка`;
+    }
+
+    return `Скачивание: ${transfer.name} — запущено`;
+  }
+
+  if (transfer.state === "pending") {
+    return `Загрузка: ${transfer.name} — идет`;
+  }
+
+  if (transfer.state === "error") {
+    return `Загрузка: ${transfer.name} — ошибка`;
+  }
+
+  return `Загрузка: ${transfer.name} — готово`;
+}
+
+function docRenderCommentTransferStrip() {
+  if (!docCommentsState.transferStripNode) {
+    return;
+  }
+
+  docCommentsState.transferStripNode.textContent = "";
+  docCommentsState.transferStripNode.hidden = docCommentsState.transfers.length === 0;
+
+  docCommentsState.transfers.forEach((transfer) => {
+    const chip = document.createElement("div");
+    chip.className = `transfer-chip is-${transfer.state}`;
+    chip.textContent = describeDocTransfer(transfer);
+    docCommentsState.transferStripNode.append(chip);
+  });
+}
+
+function bindDocTransferLink(link, { action, name, url }) {
+  const initialLabel = link.textContent || "Скачать";
+
+  link.addEventListener("click", (event) => {
+    if (link.dataset.loading === "true") {
+      event.preventDefault();
+      return;
+    }
+
+    const transferId = startDocTransfer(action, name);
+    link.dataset.loading = "true";
+    link.classList.add("is-loading");
+    link.textContent = action === "download" ? "Скачивается..." : "Открывается...";
+
+    window.setTimeout(() => {
+      link.dataset.loading = "false";
+      link.classList.remove("is-loading");
+      link.textContent = initialLabel;
+      settleDocTransfer(transferId, "done", 2200);
+    }, DOC_FILE_TRANSFER_LOCK_MS);
+
+    if (action === "download") {
+      event.preventDefault();
+      docTriggerBrowserDownload(url, name);
+    }
+  });
+}
+
+function docTriggerBrowserDownload(url, fileName) {
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = fileName;
+  anchor.hidden = true;
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
 }
 
 function docSetCommentComposerBusy(isBusy) {
@@ -1059,6 +1178,8 @@ async function docSubmitComment() {
 
 async function docUploadCommentFilesInBackground(docId, files) {
   for (const file of files) {
+    const transferId = startDocTransfer("upload", file.name);
+
     try {
       const payload = await docUploadCommentFile(docId, file);
 
@@ -1069,7 +1190,9 @@ async function docUploadCommentFilesInBackground(docId, files) {
       docCommentsState.items = docMergeCommentItems(docCommentsState.items, [payload.comment]);
       docCommentsState.lastId = String(payload.comment.id || docCommentsState.lastId);
       docRenderCommentList();
+      settleDocTransfer(transferId, "done");
     } catch (error) {
+      settleDocTransfer(transferId, "error", 5000);
       window.alert(error.message || `Не удалось загрузить файл ${file.name}.`);
     }
   }

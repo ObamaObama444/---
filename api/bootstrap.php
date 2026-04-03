@@ -29,6 +29,10 @@ function ensure_storage_ready(): void
     if (!file_exists(comments_file())) {
         file_put_contents(comments_file(), "[]\n", LOCK_EX);
     }
+
+    if (!file_exists(file_index_file())) {
+        file_put_contents(file_index_file(), "{}\n", LOCK_EX);
+    }
 }
 
 function project_root(): string
@@ -66,6 +70,11 @@ function messages_file(): string
 function comments_file(): string
 {
     return storage_path('comments.json');
+}
+
+function file_index_file(): string
+{
+    return storage_path('file-index.json');
 }
 
 function json_response(array $payload, int $status = 200): void
@@ -211,6 +220,95 @@ function find_comment_file_message(string $fileId): ?array
 function find_any_file_message(string $fileId): ?array
 {
     return find_file_message($fileId) ?? find_comment_file_message($fileId);
+}
+
+function read_file_index(): array
+{
+    $handle = fopen(file_index_file(), 'c+');
+
+    if ($handle === false) {
+        return [];
+    }
+
+    flock($handle, LOCK_SH);
+    rewind($handle);
+    $raw = stream_get_contents($handle);
+    flock($handle, LOCK_UN);
+    fclose($handle);
+
+    if (!is_string($raw) || trim($raw) === '') {
+        return [];
+    }
+
+    $decoded = json_decode($raw, true);
+
+    return is_array($decoded) ? $decoded : [];
+}
+
+function store_file_meta(array $fileMeta): void
+{
+    $fileId = clean_public_id($fileMeta['id'] ?? '');
+
+    if ($fileId === '') {
+        return;
+    }
+
+    $handle = fopen(file_index_file(), 'c+');
+
+    if ($handle === false) {
+        return;
+    }
+
+    flock($handle, LOCK_EX);
+    rewind($handle);
+    $raw = stream_get_contents($handle);
+    $index = json_decode(is_string($raw) ? $raw : '', true);
+    $index = is_array($index) ? $index : [];
+    $index[$fileId] = [
+        'id' => $fileId,
+        'originalName' => sanitize_filename($fileMeta['originalName'] ?? 'file'),
+        'storedName' => sanitize_filename($fileMeta['storedName'] ?? ''),
+        'mimeType' => trim((string) ($fileMeta['mimeType'] ?? 'application/octet-stream')),
+        'size' => max(0, (int) ($fileMeta['size'] ?? 0)),
+    ];
+
+    $encoded = json_encode($index, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+    if ($encoded !== false) {
+        rewind($handle);
+        ftruncate($handle, 0);
+        fwrite($handle, $encoded . "\n");
+        fflush($handle);
+    }
+
+    flock($handle, LOCK_UN);
+    fclose($handle);
+}
+
+function find_file_meta(string $fileId): ?array
+{
+    $fileId = clean_public_id($fileId);
+
+    if ($fileId === '') {
+        return null;
+    }
+
+    $index = read_file_index();
+
+    if (isset($index[$fileId]) && is_array($index[$fileId])) {
+        return $index[$fileId];
+    }
+
+    $record = find_any_file_message($fileId);
+
+    if ($record === null || !isset($record['file']) || !is_array($record['file'])) {
+        return null;
+    }
+
+    $fileMeta = $record['file'];
+    store_file_meta($fileMeta);
+
+    return $fileMeta;
 }
 
 function decoded_messages($raw): array

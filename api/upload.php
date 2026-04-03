@@ -49,6 +49,7 @@ $fileMeta = [
 
 try {
     $message = append_message(create_file_message($profileId, $nickname, $fileMeta));
+    store_file_meta($fileMeta);
 } catch (Throwable $error) {
     @unlink($target);
     error_response(500, 'Не удалось сохранить сообщение с файлом.');

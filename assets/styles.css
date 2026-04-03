@@ -577,17 +577,9 @@ html[data-theme="dark"] .theme-toggle__moon {
   gap: 12px;
 }
 
-.reader-comments__head h3 {
-  margin: 10px 0 0;
-  font-size: 1.32rem;
-  letter-spacing: -0.025em;
-}
-
-.reader-comments__hint {
-  max-width: 60ch;
-  margin: 10px 0 0;
-  color: var(--text-soft);
-  line-height: 1.7;
+.reader-comments__spacer {
+  flex: 1;
+  min-height: 1px;
 }
 
 .reader-comments__count {
@@ -677,11 +669,14 @@ html[data-theme="dark"] .theme-toggle__moon {
 
 .doc-comment__image {
   display: block;
-  width: 100%;
-  max-height: 280px;
-  object-fit: cover;
+  width: auto;
+  max-width: 100%;
+  height: auto;
+  max-height: 360px;
+  object-fit: contain;
   border: 1px solid var(--line-strong);
   border-radius: 14px;
+  background: var(--panel-strong);
 }
 
 .doc-comment__file {
@@ -912,11 +907,14 @@ html[data-theme="dark"] .message--assistant .message__author {
 
 .message__image {
   display: block;
-  width: 100%;
-  max-height: 260px;
-  object-fit: cover;
+  width: auto;
+  max-width: 100%;
+  height: auto;
+  max-height: 340px;
+  object-fit: contain;
   border: 1px solid var(--line-strong);
   border-radius: 12px;
+  background: var(--panel-strong);
 }
 
 .message__file {
@@ -963,6 +961,11 @@ html[data-theme="dark"] .message--assistant .message__author {
   border-radius: 10px;
   text-decoration: none;
   white-space: nowrap;
+}
+
+.file-link.is-loading {
+  opacity: 0.72;
+  pointer-events: none;
 }
 
 .composer {
@@ -1046,6 +1049,46 @@ html[data-theme="dark"] .message--assistant .message__author {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.transfer-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.transfer-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  padding: 7px 11px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  color: var(--text-soft);
+  font-size: 0.8rem;
+  line-height: 1.3;
+}
+
+.transfer-chip::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.transfer-chip.is-pending::before {
+  background: #d9a441;
+}
+
+.transfer-chip.is-done::before {
+  background: #4ea66d;
+}
+
+.transfer-chip.is-error::before {
+  background: #cf6666;
 }
 
 .attachment-chip {

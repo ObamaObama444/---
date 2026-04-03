@@ -3,6 +3,7 @@ const CHAT_MODE_STORAGE_KEY = "open-room-chat-mode-v1";
 const AI_THREAD_STORAGE_PREFIX = "open-room-ai-thread-v1:";
 const POLL_INTERVAL_MS = 1200;
 const TOUCH_OPEN_DELAY_MS = 650;
+const FILE_TRANSFER_LOCK_MS = 6000;
 const AI_MODE = "ai";
 const ROOM_MODE = "room";
 const MAX_AI_ATTACHMENT_SIZE = 512000;
@@ -65,6 +66,15 @@ let pollTimerId = null;
 let isPolling = false;
 let isToggleHovered = false;
 let touchOpenTimerId = null;
+let roomTransfers = [];
+
+const transferStrip = attachmentStrip ? document.createElement("div") : null;
+
+if (transferStrip && attachmentStrip.parentNode) {
+  transferStrip.className = "transfer-strip";
+  transferStrip.hidden = true;
+  attachmentStrip.after(transferStrip);
+}
 
 chatToggle.addEventListener("click", (event) => {
   event.preventDefault();
@@ -535,6 +545,11 @@ function renderMessageNode({ kind, role, author, profileId = "", text = "", file
     downloadLink.href = buildDownloadFileUrl(file.id);
     downloadLink.textContent = "Скачать";
     downloadLink.setAttribute("download", file.originalName);
+    bindTransferLink(downloadLink, {
+      action: "download",
+      name: file.originalName,
+      url: downloadLink.href,
+    });
     actions.append(downloadLink);
 
     fileBox.append(info, actions);
@@ -580,6 +595,121 @@ function renderAttachmentStrip() {
     chip.append(name, removeButton);
     attachmentStrip.append(chip);
   });
+}
+
+function startRoomTransfer(action, name) {
+  const transfer = {
+    id: generateLocalId(),
+    action,
+    name,
+    state: "pending",
+  };
+
+  roomTransfers = [...roomTransfers, transfer];
+  renderTransferStrip();
+  return transfer.id;
+}
+
+function updateRoomTransfer(transferId, patch) {
+  roomTransfers = roomTransfers.map((transfer) => {
+    if (transfer.id !== transferId) {
+      return transfer;
+    }
+
+    return { ...transfer, ...patch };
+  });
+
+  renderTransferStrip();
+}
+
+function clearRoomTransfer(transferId) {
+  roomTransfers = roomTransfers.filter((transfer) => transfer.id !== transferId);
+  renderTransferStrip();
+}
+
+function settleRoomTransfer(transferId, state, delayMs = 1800) {
+  updateRoomTransfer(transferId, { state });
+  window.setTimeout(() => {
+    clearRoomTransfer(transferId);
+  }, delayMs);
+}
+
+function describeTransfer(transfer) {
+  if (transfer.action === "download") {
+    if (transfer.state === "pending") {
+      return `Скачивание: ${transfer.name} — стартуем`;
+    }
+
+    if (transfer.state === "error") {
+      return `Скачивание: ${transfer.name} — ошибка`;
+    }
+
+    return `Скачивание: ${transfer.name} — запущено`;
+  }
+
+  if (transfer.state === "pending") {
+    return `Загрузка: ${transfer.name} — идет`;
+  }
+
+  if (transfer.state === "error") {
+    return `Загрузка: ${transfer.name} — ошибка`;
+  }
+
+  return `Загрузка: ${transfer.name} — готово`;
+}
+
+function renderTransferStrip() {
+  if (!transferStrip) {
+    return;
+  }
+
+  transferStrip.textContent = "";
+  transferStrip.hidden = roomTransfers.length === 0;
+
+  roomTransfers.forEach((transfer) => {
+    const chip = document.createElement("div");
+    chip.className = `transfer-chip is-${transfer.state}`;
+    chip.textContent = describeTransfer(transfer);
+    transferStrip.append(chip);
+  });
+}
+
+function bindTransferLink(link, { action, name, url }) {
+  const initialLabel = link.textContent || "Скачать";
+
+  link.addEventListener("click", (event) => {
+    if (link.dataset.loading === "true") {
+      event.preventDefault();
+      return;
+    }
+
+    const transferId = startRoomTransfer(action, name);
+    link.dataset.loading = "true";
+    link.classList.add("is-loading");
+    link.textContent = action === "download" ? "Скачивается..." : "Открывается...";
+
+    window.setTimeout(() => {
+      link.dataset.loading = "false";
+      link.classList.remove("is-loading");
+      link.textContent = initialLabel;
+      settleRoomTransfer(transferId, "done", 2200);
+    }, FILE_TRANSFER_LOCK_MS);
+
+    if (action === "download") {
+      event.preventDefault();
+      triggerBrowserDownload(url, name);
+    }
+  });
+}
+
+function triggerBrowserDownload(url, fileName) {
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = fileName;
+  anchor.hidden = true;
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
 }
 
 function setDropTarget(isActive) {
@@ -734,6 +864,8 @@ async function uploadRoomFilesInBackground(files) {
 
   try {
     for (const file of files) {
+      const transferId = startRoomTransfer("upload", file.name);
+
       try {
         const message = await uploadRoomFile(file);
         roomMessages = [...roomMessages, message].slice(-250);
@@ -743,7 +875,10 @@ async function uploadRoomFilesInBackground(files) {
         } else {
           setUnread(true);
         }
+
+        settleRoomTransfer(transferId, "done");
       } catch (error) {
+        settleRoomTransfer(transferId, "error", 5000);
         window.alert(error.message || `Не удалось загрузить файл ${file.name}.`);
       } finally {
         activeRoomUploads = Math.max(0, activeRoomUploads - 1);
