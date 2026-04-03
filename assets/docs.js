@@ -409,79 +409,50 @@ function renderDocList(docs, state, onSelect) {
     return;
   }
 
-  const groups = new Map();
-
   docs.forEach((doc) => {
-    if (!groups.has(doc.category)) {
-      groups.set(doc.category, []);
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "doc-item";
+    button.dataset.docId = doc.id;
+
+    if (doc.id === state.activeDocId) {
+      button.classList.add("is-active");
     }
 
-    groups.get(doc.category).push(doc);
-  });
+    const titleRow = document.createElement("div");
+    titleRow.className = "doc-item__head";
 
-  groups.forEach((items, category) => {
-    const section = document.createElement("section");
-    section.className = "doc-group";
+    const identity = document.createElement("div");
+    identity.className = "doc-item__identity";
 
-    const head = document.createElement("div");
-    head.className = "doc-group__head";
+    const number = document.createElement("span");
+    number.className = "doc-item__number";
+    number.textContent = docFormatNumber(docDisplayNumber(doc));
 
-    const title = document.createElement("span");
-    title.textContent = category;
+    const name = document.createElement("h3");
+    name.textContent = doc.title;
 
-    const count = document.createElement("span");
-    count.textContent = `${docFormatNumber(items.length)} docs`;
+    const length = document.createElement("span");
+    length.textContent = doc.readTime;
 
-    head.append(title, count);
-    section.append(head);
+    identity.append(number, name);
+    titleRow.append(identity, length);
 
-    items.forEach((doc) => {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "doc-item";
-      button.dataset.docId = doc.id;
+    const summary = document.createElement("p");
+    summary.textContent = doc.summary;
 
-      if (doc.id === state.activeDocId) {
-        button.classList.add("is-active");
-      }
+    const meta = document.createElement("div");
+    meta.className = "doc-item__meta";
 
-      const titleRow = document.createElement("div");
-      titleRow.className = "doc-item__head";
-
-      const identity = document.createElement("div");
-      identity.className = "doc-item__identity";
-
-      const number = document.createElement("span");
-      number.className = "doc-item__number";
-      number.textContent = docFormatNumber(docDisplayNumber(doc));
-
-      const name = document.createElement("h3");
-      name.textContent = doc.title;
-
-      const length = document.createElement("span");
-      length.textContent = doc.readTime;
-
-      identity.append(number, name);
-      titleRow.append(identity, length);
-
-      const summary = document.createElement("p");
-      summary.textContent = doc.summary;
-
-      const meta = document.createElement("div");
-      meta.className = "doc-item__meta";
-
-      (doc.tags || []).slice(0, 4).forEach((tag) => {
-        const chip = document.createElement("span");
-        chip.textContent = tag;
-        meta.append(chip);
-      });
-
-      button.append(titleRow, summary, meta);
-      button.addEventListener("click", () => onSelect(doc.id));
-      section.append(button);
+    (doc.tags || []).slice(0, 4).forEach((tag) => {
+      const chip = document.createElement("span");
+      chip.textContent = tag;
+      meta.append(chip);
     });
 
-    docListNode.append(section);
+    button.append(titleRow, summary, meta);
+    button.addEventListener("click", () => onSelect(doc.id));
+    docListNode.append(button);
   });
 }
 
