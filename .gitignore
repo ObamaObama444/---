@@ -6,3 +6,4 @@ uploads/
 storage/uploads/*
 !storage/uploads/.gitkeep
 storage/messages.json
+storage/ai-config.php

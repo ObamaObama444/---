@@ -6,8 +6,8 @@ const TOUCH_OPEN_DELAY_MS = 650;
 const FILE_TRANSFER_LOCK_MS = 6000;
 const AI_MODE = "ai";
 const ROOM_MODE = "room";
-const MAX_AI_ATTACHMENT_SIZE = 512000;
-const MAX_AI_ATTACHMENT_TEXT_LENGTH = 120000;
+const MAX_AI_ATTACHMENT_SIZE = 2097152;
+const MAX_AI_ATTACHMENT_TEXT_LENGTH = 180000;
 const TEXT_ATTACHMENT_TYPES = [
   "text/",
   "application/json",
@@ -18,6 +18,8 @@ const TEXT_ATTACHMENT_TYPES = [
 const TEXT_ATTACHMENT_EXTENSIONS = [
   ".html",
   ".htm",
+  ".mht",
+  ".mhtml",
   ".txt",
   ".md",
   ".json",
@@ -427,7 +429,7 @@ function renderAiThread() {
 
     const text = document.createElement("div");
     text.className = "message__text";
-    text.textContent = "Можешь отправить вопрос по программированию или математике и приложить HTML-файл с заданием.";
+    text.textContent = "Можешь отправить вопрос по программированию или математике и приложить HTML/MHT/MHTML-файл с заданием.";
 
     empty.append(meta, text);
     messagesNode.append(empty);
@@ -790,7 +792,7 @@ async function submitAiMessage(text) {
   const preparedAttachments = await prepareAiAttachments(pendingFiles);
 
   if (!text && preparedAttachments.length === 0) {
-    throw new Error("Для AI-чата нужен текст или поддерживаемый HTML/TXT/JSON-файл.");
+    throw new Error("Для ассистента нужен текст или поддерживаемый HTML/MHTML/TXT/JSON-файл.");
   }
 
   const userEntry = {
@@ -879,15 +881,16 @@ async function prepareAiAttachments(files) {
 
   for (const file of files) {
     if (!isTextAttachment(file)) {
-      throw new Error(`AI-чат пока принимает HTML/TXT/JSON/MD/кодовые текстовые файлы. Файл ${file.name} не поддерживается.`);
+      throw new Error(`Ассистент принимает HTML/MHTML/TXT/JSON/MD и кодовые текстовые файлы. Файл ${file.name} не поддерживается.`);
     }
 
     if (file.size > MAX_AI_ATTACHMENT_SIZE) {
-      throw new Error(`Файл ${file.name} слишком большой для AI-чата. Лимит 500 КБ на файл.`);
+      throw new Error(`Файл ${file.name} слишком большой для ассистента. Лимит 2 МБ на файл.`);
     }
 
     const raw = await file.text();
-    const trimmed = raw.slice(0, MAX_AI_ATTACHMENT_TEXT_LENGTH);
+    const normalized = normalizeAiAttachmentContent(file, raw);
+    const trimmed = normalized.slice(0, MAX_AI_ATTACHMENT_TEXT_LENGTH);
 
     prepared.push({
       name: file.name,
@@ -1149,6 +1152,90 @@ function isTextAttachment(file) {
   }
 
   return TEXT_ATTACHMENT_EXTENSIONS.some((extension) => fileName.endsWith(extension));
+}
+
+function normalizeAiAttachmentContent(file, raw) {
+  const fileName = String(file.name || "").toLowerCase();
+  const mimeType = String(file.type || "").toLowerCase();
+
+  if (fileName.endsWith(".mht") || fileName.endsWith(".mhtml") || mimeType.includes("mhtml")) {
+    return mhtmlToStudyText(raw);
+  }
+
+  if (fileName.endsWith(".html") || fileName.endsWith(".htm") || mimeType.includes("html")) {
+    return htmlToStudyText(raw);
+  }
+
+  return raw;
+}
+
+function mhtmlToStudyText(raw) {
+  const boundaryMatch = raw.match(/boundary="?([^"\r\n;]+)"?/i);
+
+  if (!boundaryMatch) {
+    return htmlToStudyText(raw);
+  }
+
+  const boundary = boundaryMatch[1];
+  const parts = raw.split(new RegExp(`--${escapeRegExp(boundary)}(?:--)?\\r?\\n`, "g"));
+  let htmlPart = "";
+
+  for (const part of parts) {
+    if (!/content-type:\s*text\/html/i.test(part)) {
+      continue;
+    }
+
+    const splitIndex = part.search(/\r?\n\r?\n/);
+
+    if (splitIndex === -1) {
+      continue;
+    }
+
+    htmlPart = part.slice(splitIndex).trim();
+    break;
+  }
+
+  return htmlToStudyText(htmlPart || raw);
+}
+
+function htmlToStudyText(raw) {
+  if (typeof DOMParser !== "function") {
+    return stripMarkupFallback(raw);
+  }
+
+  try {
+    const parser = new DOMParser();
+    const documentNode = parser.parseFromString(raw, "text/html");
+
+    documentNode.querySelectorAll("script, style, noscript, iframe, svg").forEach((node) => {
+      node.remove();
+    });
+
+    const title = documentNode.querySelector("title")?.textContent?.trim() || "";
+    const bodyText = documentNode.body?.innerText?.trim() || documentNode.documentElement?.innerText?.trim() || "";
+    const combined = [title, bodyText].filter(Boolean).join("\n\n");
+
+    return combined || stripMarkupFallback(raw);
+  } catch (_error) {
+    return stripMarkupFallback(raw);
+  }
+}
+
+function stripMarkupFallback(raw) {
+  return raw
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function extractFilesFromClipboard(clipboardData) {
