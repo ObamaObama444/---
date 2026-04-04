@@ -6,7 +6,7 @@ const TOUCH_OPEN_DELAY_MS = 650;
 const FILE_TRANSFER_LOCK_MS = 6000;
 const AI_MODE = "ai";
 const ROOM_MODE = "room";
-const MAX_AI_ATTACHMENT_SIZE = 2097152;
+const MAX_AI_ATTACHMENT_SIZE = 26214400;
 const MAX_AI_ATTACHMENT_TEXT_LENGTH = 180000;
 const TEXT_ATTACHMENT_TYPES = [
   "text/",
@@ -885,7 +885,7 @@ async function prepareAiAttachments(files) {
     }
 
     if (file.size > MAX_AI_ATTACHMENT_SIZE) {
-      throw new Error(`Файл ${file.name} слишком большой для ассистента. Лимит 2 МБ на файл.`);
+      throw new Error(`Файл ${file.name} слишком большой для ассистента. Лимит 25 МБ на файл.`);
     }
 
     const raw = await file.text();
